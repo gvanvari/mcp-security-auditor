@@ -1,0 +1,1227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MCP Security Auditor — Architecture Deep Dive</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --surface: #161b22;
+    --border: #30363d;
+    --text: #e6edf3;
+    --muted: #8b949e;
+    --accent: #58a6ff;
+    --green: #3fb950;
+    --yellow: #d29922;
+    --red: #f85149;
+    --purple: #bc8cff;
+    --orange: #ffa657;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    line-height: 1.6;
+  }
+
+  /* NAV */
+  nav {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    background: rgba(13,17,23,0.95);
+    backdrop-filter: blur(8px);
+    border-bottom: 1px solid var(--border);
+    padding: 0 2rem;
+    display: flex;
+    align-items: center;
+    gap: 0;
+    overflow-x: auto;
+    height: 52px;
+  }
+  nav a {
+    color: var(--muted);
+    text-decoration: none;
+    font-size: 0.82rem;
+    font-weight: 500;
+    padding: 0 1rem;
+    height: 52px;
+    display: flex;
+    align-items: center;
+    border-bottom: 2px solid transparent;
+    white-space: nowrap;
+    transition: color 0.15s, border-color 0.15s;
+  }
+  nav a:hover { color: var(--text); border-bottom-color: var(--accent); }
+  nav .logo {
+    color: var(--accent);
+    font-weight: 700;
+    font-size: 0.9rem;
+    margin-right: 1rem;
+    border-bottom: none !important;
+  }
+
+  /* SECTIONS */
+  section {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 5rem 2rem;
+    border-bottom: 1px solid var(--border);
+  }
+
+  /* HERO */
+  .hero {
+    text-align: center;
+    padding: 7rem 2rem 5rem;
+    max-width: 1100px;
+    margin: 0 auto;
+  }
+  .hero h1 {
+    font-size: 2.8rem;
+    font-weight: 700;
+    letter-spacing: -0.03em;
+    line-height: 1.15;
+    margin-bottom: 1rem;
+  }
+  .hero h1 span { color: var(--accent); }
+  .hero p {
+    color: var(--muted);
+    font-size: 1.1rem;
+    max-width: 640px;
+    margin: 0 auto 2rem;
+  }
+  .badge-row {
+    display: flex;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 1.5rem;
+  }
+  .badge {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 0.3rem 0.9rem;
+    font-size: 0.78rem;
+    color: var(--muted);
+  }
+  .badge.green { border-color: var(--green); color: var(--green); }
+  .badge.blue  { border-color: var(--accent); color: var(--accent); }
+  .badge.red   { border-color: var(--red); color: var(--red); }
+
+  /* SECTION HEADERS */
+  .section-label {
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 0.5rem;
+  }
+  h2 {
+    font-size: 1.9rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    margin-bottom: 0.5rem;
+  }
+  .section-intro {
+    color: var(--muted);
+    max-width: 700px;
+    margin-bottom: 2.5rem;
+    font-size: 1rem;
+  }
+
+  /* PIPELINE DIAGRAM */
+  .pipeline {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    align-items: center;
+  }
+  .pipe-step {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1.2rem 2rem;
+    width: 100%;
+    max-width: 680px;
+    position: relative;
+  }
+  .pipe-step .pipe-label {
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    margin-bottom: 0.2rem;
+  }
+  .pipe-step h3 { font-size: 1rem; font-weight: 600; }
+  .pipe-step p  { color: var(--muted); font-size: 0.85rem; margin-top: 0.2rem; }
+  .pipe-arrow {
+    font-size: 1.4rem;
+    color: var(--border);
+    margin: 0.3rem 0;
+  }
+  .phase-1 .pipe-label { color: var(--accent); }
+  .phase-2 .pipe-label { color: var(--purple); }
+  .phase-3 .pipe-label { color: var(--yellow); }
+  .phase-4 .pipe-label { color: var(--green); }
+
+  /* CARD GRID */
+  .card-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 1rem;
+    margin-top: 1.5rem;
+  }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1.4rem;
+  }
+  .card h4 {
+    font-size: 0.88rem;
+    font-weight: 600;
+    margin-bottom: 0.6rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .card ul {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+  .card ul li {
+    font-size: 0.85rem;
+    color: var(--muted);
+    padding-left: 1rem;
+    position: relative;
+  }
+  .card ul li::before {
+    content: "–";
+    position: absolute;
+    left: 0;
+    color: var(--border);
+  }
+  .card ul li strong { color: var(--text); }
+
+  /* COMPONENT SECTION */
+  .component-block {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+    margin-bottom: 1.5rem;
+  }
+  .component-header {
+    padding: 1.2rem 1.6rem;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+  }
+  .component-header .icon {
+    width: 36px; height: 36px;
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.1rem;
+    flex-shrink: 0;
+  }
+  .component-header h3 { font-size: 1rem; font-weight: 600; margin-bottom: 0.1rem; }
+  .component-header p  { font-size: 0.8rem; color: var(--muted); }
+  .component-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0;
+  }
+  @media (max-width: 700px) { .component-grid { grid-template-columns: 1fr; } }
+  .component-cell {
+    padding: 1.2rem 1.6rem;
+    border-right: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+  }
+  .component-cell:nth-child(even) { border-right: none; }
+  .component-cell:nth-last-child(-n+2) { border-bottom: none; }
+  @media (max-width: 700px) {
+    .component-cell { border-right: none; }
+    .component-cell:last-child { border-bottom: none; }
+  }
+  .component-cell h4 {
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-bottom: 0.6rem;
+  }
+  .component-cell ul {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+  }
+  .component-cell ul li {
+    font-size: 0.83rem;
+    color: var(--muted);
+    padding-left: 1rem;
+    position: relative;
+    line-height: 1.45;
+  }
+  .component-cell ul li::before {
+    content: "▸";
+    position: absolute;
+    left: 0;
+    font-size: 0.65rem;
+    top: 0.1rem;
+  }
+  .component-cell ul li strong { color: var(--text); }
+  .cell-design h4  { color: var(--accent); }
+  .cell-security h4 { color: var(--red); }
+  .cell-swap h4    { color: var(--purple); }
+  .cell-cost h4    { color: var(--green); }
+
+  /* ROUTING TABLE */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.85rem;
+    margin-top: 1.5rem;
+  }
+  th {
+    background: var(--surface);
+    padding: 0.7rem 1rem;
+    text-align: left;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    border-bottom: 1px solid var(--border);
+  }
+  td {
+    padding: 0.65rem 1rem;
+    border-bottom: 1px solid var(--border);
+    color: var(--muted);
+    vertical-align: top;
+  }
+  td:first-child { color: var(--text); font-family: monospace; font-size: 0.82rem; }
+  tr:last-child td { border-bottom: none; }
+  .tier-self    { color: var(--green); font-weight: 600; }
+  .tier-context { color: var(--yellow); font-weight: 600; }
+  .tier-analysis{ color: var(--orange); font-weight: 600; }
+  .tier-chain   { color: var(--red); font-weight: 600; }
+
+  /* COST TABLE */
+  .cost-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 1rem;
+    margin-top: 1.5rem;
+  }
+  .cost-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1.2rem;
+  }
+  .cost-card .cost-num {
+    font-size: 2rem;
+    font-weight: 700;
+    color: var(--green);
+    line-height: 1;
+    margin-bottom: 0.3rem;
+  }
+  .cost-card .cost-label {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: 0.4rem;
+  }
+  .cost-card p { font-size: 0.8rem; color: var(--muted); }
+
+  /* REUSE TABLE */
+  .reuse-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 1rem;
+    margin-top: 1.5rem;
+  }
+  .reuse-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1.2rem;
+  }
+  .reuse-card h4 {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--accent);
+    margin-bottom: 0.5rem;
+  }
+  .reuse-card p  { font-size: 0.82rem; color: var(--muted); line-height: 1.5; }
+
+  /* CODE BLOCK */
+  pre {
+    background: #010409;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem 1.2rem;
+    font-size: 0.8rem;
+    overflow-x: auto;
+    color: var(--muted);
+    margin-top: 1rem;
+    font-family: "SF Mono", "Fira Code", monospace;
+    line-height: 1.6;
+  }
+  pre .kw  { color: var(--purple); }
+  pre .fn  { color: var(--accent); }
+  pre .str { color: var(--green); }
+  pre .cm  { color: #484f58; }
+
+  /* FOOTER */
+  footer {
+    text-align: center;
+    padding: 3rem 2rem;
+    color: var(--muted);
+    font-size: 0.8rem;
+    border-top: 1px solid var(--border);
+  }
+  footer a { color: var(--accent); text-decoration: none; }
+</style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav>
+  <a class="logo" href="#hero">MCP Auditor</a>
+  <a href="#pipeline">Pipeline</a>
+  <a href="#flowdiagram">Flow Diagram</a>
+  <a href="#extractors">Extractors</a>
+  <a href="#router">Router</a>
+  <a href="#llm">LLM Analysis</a>
+  <a href="#reporters">Reporters</a>
+  <a href="#cost">Cost</a>
+  <a href="#reuse">Reusability</a>
+</nav>
+
+<!-- HERO -->
+<div class="hero" id="hero">
+  <p class="section-label" style="justify-content:center;display:flex;">Portfolio Project</p>
+  <h1>MCP <span>Security Auditor</span><br>Architecture Deep Dive</h1>
+  <p>A static analysis pipeline for Model Context Protocol servers — detecting prompt injection, tool poisoning, command injection, SSRF, and secret exposure before deployment.</p>
+  <div class="badge-row">
+    <span class="badge green">70 tests passing</span>
+    <span class="badge blue">Python 3.14 · Pydantic v2</span>
+    <span class="badge blue">4-phase pipeline</span>
+    <span class="badge red">9 OWASP-mapped rules</span>
+    <span class="badge">AST · Regex · YAML KB · Claude Haiku</span>
+  </div>
+</div>
+
+<!-- PIPELINE OVERVIEW -->
+<section id="pipeline">
+  <p class="section-label">Architecture</p>
+  <h2>The Complete Pipeline</h2>
+  <p class="section-intro">Four phases with clean contracts between them. Every phase is independently testable and replaceable. The canonical data type — <code>ThreatVector</code> — flows through all four.</p>
+
+  <div class="pipeline">
+    <div class="pipe-step phase-1">
+      <div class="pipe-label">Phase 1 · Extraction</div>
+      <h3>ToolDescriptionAnalyzer + ASTExtractor</h3>
+      <p>Parse Python source. Scan docstrings for hidden instructions. Walk AST for dangerous call patterns. Output: <strong>list[ThreatVector]</strong> wrapped in <strong>ScanResult</strong>.</p>
+    </div>
+    <div class="pipe-arrow">↓</div>
+    <div class="pipe-step phase-2">
+      <div class="pipe-label">Phase 2 · KB Routing</div>
+      <h3>KBRouter + YAML Rule Files</h3>
+      <p>Load 9 YAML rules at startup. Match each ThreatVector to its rule by rule_id. Decide routing tier. Output: <strong>list[EnrichedFinding]</strong>.</p>
+    </div>
+    <div class="pipe-arrow">↓</div>
+    <div class="pipe-step phase-3">
+      <div class="pipe-label">Phase 3 · LLM Analysis</div>
+      <h3>LLM Provider (Claude Haiku)</h3>
+      <p>Only <strong>NEEDS_CONTEXT</strong> findings reach here. LLM adds one paragraph explaining how this specific code is exploitable. Skipped entirely for SELF_CONTAINED findings.</p>
+    </div>
+    <div class="pipe-arrow">↓</div>
+    <div class="pipe-step phase-4">
+      <div class="pipe-label">Phase 4 · Reporting</div>
+      <h3>Markdown + SARIF Reporters</h3>
+      <p>Render enriched findings into human-readable Markdown and machine-readable SARIF (for GitHub Code Scanning). Output: <strong>audit-report.md</strong> + <strong>audit-report.sarif</strong>.</p>
+    </div>
+  </div>
+
+  <div class="card-grid" style="margin-top:2.5rem;">
+    <div class="card">
+      <h4>📄 Canonical Contract</h4>
+      <ul>
+        <li><strong>ThreatVector</strong> — produced by every extractor</li>
+        <li><strong>ScanResult</strong> — file_path + findings + parse_status</li>
+        <li><strong>EnrichedFinding</strong> — vector + KB rule + routing + LLM analysis</li>
+        <li>All types live in <strong>threat_vector.py</strong> — one import, no circular deps</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h4>🔒 Phase Isolation</h4>
+      <ul>
+        <li>Each phase only knows its input and output types</li>
+        <li>Extractors never import from router or reporters</li>
+        <li>Router never imports from extractors or reporters</li>
+        <li>Reporters only consume <strong>EnrichedFinding</strong> — nothing else</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h4>🧪 Test Architecture</h4>
+      <ul>
+        <li><strong>18 tests</strong> — ToolDescriptionAnalyzer (corpus-driven)</li>
+        <li><strong>27 tests</strong> — ASTExtractor (corpus-driven)</li>
+        <li><strong>25 tests</strong> — KBRouter (hand-built fixtures, isolated)</li>
+        <li>False-positive regression tests in every suite</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- FLOW DIAGRAM -->
+<section id="flowdiagram">
+  <p class="section-label">Visual</p>
+  <h2>Pipeline Flow &amp; Decision Tree</h2>
+  <p class="section-intro">Complete data flow from source file to audit report — including the KB routing decision tree, the LLM cost split, and the SARIF feedback loop back into CI/CD.</p>
+  <div style="overflow-x:auto;margin-top:1.5rem;">
+  <svg viewBox="0 0 960 1390" xmlns="http://www.w3.org/2000/svg" style="width:100%;display:block;min-width:680px;border-radius:10px;">
+
+    <defs>
+      <marker id="arr"        markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#484f58"/></marker>
+      <marker id="arrGreen"   markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#3fb950"/></marker>
+      <marker id="arrBlue"    markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#58a6ff"/></marker>
+      <marker id="arrPurple"  markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#bc8cff"/></marker>
+      <marker id="arrYellow"  markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#d29922"/></marker>
+      <marker id="arrFeedback" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#3fb950"/></marker>
+    </defs>
+
+    <!-- BG -->
+    <rect width="960" height="1390" fill="#0d1117"/>
+
+    <!-- ══════════════════════════════════════════════════════ -->
+    <!-- INPUT FILE                                             -->
+    <!-- ══════════════════════════════════════════════════════ -->
+    <rect x="320" y="18" width="320" height="50" rx="8" fill="#161b22" stroke="#58a6ff" stroke-width="1.5"/>
+    <text x="480" y="39" text-anchor="middle" font-family="'SF Mono',monospace" font-size="13" fill="#e6edf3">malicious_tool.py</text>
+    <text x="480" y="57" text-anchor="middle" font-family="-apple-system,sans-serif" font-size="11" fill="#8b949e">Target Python source file</text>
+    <!-- arrow down -->
+    <line x1="480" y1="68" x2="480" y2="95" stroke="#484f58" stroke-width="1.5" marker-end="url(#arr)"/>
+
+    <!-- ══════════════════════════════════════════════════════ -->
+    <!-- PHASE 1 · EXTRACTION                                   -->
+    <!-- ══════════════════════════════════════════════════════ -->
+    <rect x="12" y="97" width="936" height="242" rx="10" fill="#050d1a" stroke="#58a6ff" stroke-width="1" stroke-opacity="0.5"/>
+    <text x="28" y="116" font-family="-apple-system,sans-serif" font-size="10" font-weight="700" fill="#58a6ff" letter-spacing="1.5">PHASE 1  ·  EXTRACTION</text>
+
+    <!-- ToolDescriptionAnalyzer sub-box -->
+    <rect x="28" y="122" width="432" height="195" rx="8" fill="#161b22" stroke="#30363d"/>
+    <text x="44" y="144" font-family="-apple-system,sans-serif" font-size="12" font-weight="600" fill="#58a6ff">ToolDescriptionAnalyzer</text>
+    <line x1="44" y1="150" x2="448" y2="150" stroke="#30363d"/>
+    <text x="44" y="168" font-family="-apple-system,sans-serif" font-size="11" fill="#8b949e">▸  Detect @mcp.tool() / @server.tool() decorators</text>
+    <text x="44" y="185" font-family="-apple-system,sans-serif" font-size="11" fill="#8b949e">▸  Extract docstrings via ast.get_docstring()</text>
+    <text x="44" y="202" font-family="-apple-system,sans-serif" font-size="11" fill="#8b949e">▸  CREDENTIAL_PATH_PATTERNS  →  MCP-TPA-001</text>
+    <text x="44" y="219" font-family="-apple-system,sans-serif" font-size="11" fill="#8b949e">▸  HIDDEN_INSTRUCTION_PATTERNS  →  MCP-TPA-002</text>
+    <text x="44" y="236" font-family="-apple-system,sans-serif" font-size="11" fill="#8b949e">▸  CROSS_TOOL_PATTERNS  →  MCP-SHADOW-001</text>
+    <text x="44" y="253" font-family="-apple-system,sans-serif" font-size="11" fill="#8b949e">▸  __doc__ mutation structure  →  MCP-RUGPULL-001</text>
+    <text x="44" y="270" font-family="-apple-system,sans-serif" font-size="11" fill="#8b949e">▸  Confidence.VERIFIED for corpus-validated patterns</text>
+    <!-- pluggable badge -->
+    <rect x="36" y="277" width="416" height="30" rx="4" fill="#0d1a2a" stroke="#58a6ff" stroke-width="0.7" stroke-opacity="0.5" stroke-dasharray="3,2"/>
+    <text x="44" y="287" font-family="-apple-system,sans-serif" font-size="9" fill="#58a6ff" opacity="0.7">⟳  PLUGGABLE  ·  swap this extractor for:</text>
+    <text x="44" y="300" font-family="'SF Mono',monospace" font-size="8.5" fill="#484f58">Semgrep adapter  ·  Bandit JSON adapter  ·  tree-sitter  ·  any tool → ThreatVector</text>
+    <text x="244" y="326" text-anchor="middle" font-family="'SF Mono',monospace" font-size="10" fill="#3fb950">list[ThreatVector]</text>
+
+    <!-- ASTExtractor sub-box -->
+    <rect x="500" y="122" width="432" height="195" rx="8" fill="#161b22" stroke="#30363d"/>
+    <text x="516" y="144" font-family="-apple-system,sans-serif" font-size="12" font-weight="600" fill="#58a6ff">ASTExtractor</text>
+    <line x1="516" y1="150" x2="920" y2="150" stroke="#30363d"/>
+    <text x="516" y="168" font-family="-apple-system,sans-serif" font-size="11" fill="#8b949e">▸  ast.parse(source, filename)  →  Module tree</text>
+    <text x="516" y="185" font-family="-apple-system,sans-serif" font-size="11" fill="#8b949e">▸  _detect_cmd_injection()  →  MCP-CMI-001 / 002</text>
+    <text x="516" y="202" font-family="-apple-system,sans-serif" font-size="11" fill="#8b949e">▸  _detect_eval_exec()  →  MCP-CMI-003</text>
+    <text x="516" y="219" font-family="-apple-system,sans-serif" font-size="11" fill="#8b949e">▸  _detect_env_access()  →  MCP-SEC-001</text>
+    <text x="516" y="236" font-family="-apple-system,sans-serif" font-size="11" fill="#8b949e">▸  _detect_http_calls()  →  MCP-SSRF-001</text>
+    <text x="516" y="253" font-family="-apple-system,sans-serif" font-size="11" fill="#8b949e">▸  SyntaxError  →  ScanResult(parse_status="failed")</text>
+    <text x="516" y="270" font-family="-apple-system,sans-serif" font-size="11" fill="#8b949e">▸  4 private helpers: _is_attr_call, _has_shell_true…</text>
+    <!-- pluggable badge -->
+    <rect x="508" y="277" width="416" height="30" rx="4" fill="#0d1a2a" stroke="#58a6ff" stroke-width="0.7" stroke-opacity="0.5" stroke-dasharray="3,2"/>
+    <text x="516" y="287" font-family="-apple-system,sans-serif" font-size="9" fill="#58a6ff" opacity="0.7">⟳  PLUGGABLE  ·  swap this extractor for:</text>
+    <text x="516" y="300" font-family="'SF Mono',monospace" font-size="8.5" fill="#484f58">Semgrep adapter  ·  Bandit JSON adapter  ·  tree-sitter JS/TS/Go  ·  your SAST tool</text>
+    <text x="716" y="326" text-anchor="middle" font-family="'SF Mono',monospace" font-size="10" fill="#3fb950">list[ThreatVector]</text>
+
+    <!-- merge tick lines inside Phase 1 bottom -->
+    <line x1="244" y1="317" x2="244" y2="328" stroke="#3fb950" stroke-width="1" stroke-opacity="0.5"/>
+    <line x1="716" y1="317" x2="716" y2="328" stroke="#3fb950" stroke-width="1" stroke-opacity="0.5"/>
+    <line x1="244" y1="328" x2="716" y2="328" stroke="#30363d" stroke-width="1"/>
+    <line x1="480" y1="328" x2="480" y2="339" stroke="#484f58" stroke-width="1.5"/>
+
+    <!-- arrow + ScanResult label out of Phase 1 -->
+    <line x1="480" y1="339" x2="480" y2="374" stroke="#484f58" stroke-width="1.5" marker-end="url(#arr)"/>
+    <rect x="360" y="346" width="240" height="22" rx="4" fill="#161b22" stroke="#30363d"/>
+    <text x="480" y="361" text-anchor="middle" font-family="'SF Mono',monospace" font-size="10" fill="#3fb950">ScanResult</text>
+
+    <!-- ══════════════════════════════════════════════════════ -->
+    <!-- PHASE 2 · KB ROUTING / DECISION TREE                  -->
+    <!-- ══════════════════════════════════════════════════════ -->
+    <rect x="12" y="376" width="936" height="276" rx="10" fill="#100d1a" stroke="#bc8cff" stroke-width="1" stroke-opacity="0.5"/>
+    <text x="28" y="395" font-family="-apple-system,sans-serif" font-size="10" font-weight="700" fill="#bc8cff" letter-spacing="1.5">PHASE 2  ·  KB ROUTING</text>
+
+    <!-- KB YAML side note (dashed) -->
+    <rect x="22" y="402" width="176" height="72" rx="6" fill="#161b22" stroke="#bc8cff" stroke-width="1" stroke-dasharray="4,3" stroke-opacity="0.5"/>
+    <text x="110" y="420" text-anchor="middle" font-family="-apple-system,sans-serif" font-size="11" font-weight="600" fill="#bc8cff">KB YAML × 9</text>
+    <text x="110" y="436" text-anchor="middle" font-family="-apple-system,sans-serif" font-size="10" fill="#8b949e">loaded at __init__</text>
+    <text x="110" y="452" text-anchor="middle" font-family="-apple-system,sans-serif" font-size="10" fill="#8b949e">dict[rule_id → rule]</text>
+    <text x="110" y="465" text-anchor="middle" font-family="-apple-system,sans-serif" font-size="10" fill="#8b949e">O(1) lookup per finding</text>
+    <!-- arrow from KB YAML → lookup box -->
+    <line x1="198" y1="438" x2="282" y2="438" stroke="#bc8cff" stroke-width="1" stroke-opacity="0.5" stroke-dasharray="3,2" marker-end="url(#arrPurple)"/>
+
+    <!-- Lookup box -->
+    <rect x="284" y="422" width="392" height="36" rx="6" fill="#1e1530" stroke="#bc8cff" stroke-width="1" stroke-opacity="0.6"/>
+    <text x="480" y="445" text-anchor="middle" font-family="-apple-system,sans-serif" font-size="12" fill="#e6edf3">self._rules.get(vector.rule_id)</text>
+
+    <!-- arrow down from lookup to diamond -->
+    <line x1="480" y1="458" x2="480" y2="477" stroke="#484f58" stroke-width="1.5" marker-end="url(#arr)"/>
+
+    <!-- Diamond: center (480, 504) half-w=84 half-h=34 -->
+    <polygon points="480,470 564,504 480,538 396,504" fill="#1a1528" stroke="#bc8cff" stroke-width="1.2"/>
+    <text x="480" y="499" text-anchor="middle" font-family="-apple-system,sans-serif" font-size="10.5" fill="#e6edf3">rule_id</text>
+    <text x="480" y="514" text-anchor="middle" font-family="-apple-system,sans-serif" font-size="10.5" fill="#e6edf3">in KB?</text>
+
+    <!-- YES arrow → right -->
+    <line x1="564" y1="504" x2="660" y2="504" stroke="#3fb950" stroke-width="1.5" marker-end="url(#arrGreen)"/>
+    <text x="610" y="498" text-anchor="middle" font-family="-apple-system,sans-serif" font-size="10" fill="#3fb950">YES</text>
+
+    <!-- Read llm_routing box -->
+    <rect x="662" y="488" width="154" height="32" rx="6" fill="#161b22" stroke="#30363d"/>
+    <text x="739" y="509" text-anchor="middle" font-family="-apple-system,sans-serif" font-size="11" fill="#8b949e">read llm_routing</text>
+    <!-- arrow down from read box -->
+    <line x1="739" y1="520" x2="739" y2="540" stroke="#484f58" stroke-width="1.5" marker-end="url(#arr)"/>
+
+    <!-- SELF_CONTAINED (green) and NEEDS_CONTEXT (yellow) side by side -->
+    <rect x="660" y="542" width="152" height="30" rx="5" fill="#0d2318" stroke="#3fb950" stroke-width="1"/>
+    <text x="736" y="562" text-anchor="middle" font-family="-apple-system,sans-serif" font-size="10.5" font-weight="600" fill="#3fb950">SELF_CONTAINED</text>
+    <rect x="822" y="542" width="116" height="30" rx="5" fill="#2a2000" stroke="#d29922" stroke-width="1"/>
+    <text x="880" y="562" text-anchor="middle" font-family="-apple-system,sans-serif" font-size="10.5" font-weight="600" fill="#d29922">NEEDS_CONTEXT</text>
+    <!-- llm_routing splits to both -->
+    <line x1="739" y1="540" x2="739" y2="542" stroke="#484f58" stroke-width="1"/>
+    <line x1="810" y1="520" x2="880" y2="520" stroke="#484f58" stroke-width="1" stroke-dasharray="3,2"/>
+    <line x1="880" y1="520" x2="880" y2="542" stroke="#484f58" stroke-width="1" stroke-dasharray="3,2" marker-end="url(#arr)"/>
+
+    <!-- NO arrow → left -->
+    <line x1="396" y1="504" x2="292" y2="504" stroke="#f85149" stroke-width="1.5" marker-end="url(#arr)"/>
+    <text x="342" y="498" text-anchor="middle" font-family="-apple-system,sans-serif" font-size="10" fill="#f85149">NO</text>
+    <!-- Fallback label + NEEDS_CONTEXT -->
+    <text x="240" y="500" text-anchor="middle" font-family="-apple-system,sans-serif" font-size="10" fill="#8b949e">fallback</text>
+    <rect x="174" y="488" width="116" height="30" rx="5" fill="#2a2000" stroke="#d29922" stroke-width="1"/>
+    <text x="232" y="508" text-anchor="middle" font-family="-apple-system,sans-serif" font-size="10.5" font-weight="600" fill="#d29922">NEEDS_CONTEXT</text>
+
+    <!-- Rule summary at bottom of Phase 2 -->
+    <rect x="22" y="586" width="920" height="54" rx="6" fill="#161b22" stroke="#30363d"/>
+    <text x="38" y="604" font-family="-apple-system,sans-serif" font-size="10.5" font-weight="600" fill="#3fb950">SELF_CONTAINED (6 rules) — no LLM:</text>
+    <text x="38" y="620" font-family="'SF Mono',monospace" font-size="10" fill="#484f58">MCP-TPA-001  MCP-TPA-002  MCP-SHADOW-001  MCP-RUGPULL-001  MCP-CMI-001  MCP-CMI-003</text>
+    <text x="490" y="604" font-family="-apple-system,sans-serif" font-size="10.5" font-weight="600" fill="#d29922">NEEDS_CONTEXT (3 rules) — LLM called:</text>
+    <text x="490" y="620" font-family="'SF Mono',monospace" font-size="10" fill="#484f58">MCP-CMI-002    MCP-SEC-001    MCP-SSRF-001</text>
+
+    <!-- arrow + EnrichedFinding label out of Phase 2 -->
+    <line x1="480" y1="652" x2="480" y2="688" stroke="#484f58" stroke-width="1.5" marker-end="url(#arr)"/>
+    <rect x="340" y="660" width="280" height="22" rx="4" fill="#161b22" stroke="#30363d"/>
+    <text x="480" y="675" text-anchor="middle" font-family="'SF Mono',monospace" font-size="10" fill="#bc8cff">EnrichedFinding</text>
+
+    <!-- ══════════════════════════════════════════════════════ -->
+    <!-- PHASE 3 · LLM ANALYSIS                                -->
+    <!-- ══════════════════════════════════════════════════════ -->
+    <rect x="12" y="690" width="936" height="148" rx="10" fill="#151009" stroke="#d29922" stroke-width="1" stroke-opacity="0.5"/>
+    <text x="28" y="708" font-family="-apple-system,sans-serif" font-size="10" font-weight="700" fill="#d29922" letter-spacing="1.5">PHASE 3  ·  LLM ANALYSIS</text>
+
+    <!-- SELF_CONTAINED lane (left) -->
+    <rect x="28" y="714" width="420" height="108" rx="8" fill="#161b22" stroke="#30363d"/>
+    <text x="44" y="734" font-family="-apple-system,sans-serif" font-size="11" font-weight="600" fill="#3fb950">SELF_CONTAINED  →  skip LLM entirely</text>
+    <text x="44" y="753" font-family="-apple-system,sans-serif" font-size="11" fill="#8b949e">▸  KB rule already contains full description</text>
+    <text x="44" y="770" font-family="-apple-system,sans-serif" font-size="11" fill="#8b949e">▸  llm_analysis = None</text>
+    <text x="44" y="787" font-family="-apple-system,sans-serif" font-size="11" fill="#8b949e">▸  Zero API tokens spent</text>
+    <text x="44" y="804" font-family="-apple-system,sans-serif" font-size="11" fill="#3fb950">▸  6/9 rules — majority of all findings</text>
+
+    <!-- NEEDS_CONTEXT lane (right) -->
+    <rect x="500" y="714" width="432" height="108" rx="8" fill="#161b22" stroke="#30363d"/>
+    <text x="516" y="734" font-family="-apple-system,sans-serif" font-size="11" font-weight="600" fill="#d29922">NEEDS_CONTEXT  →  LLM Provider</text>
+    <!-- swap badge -->
+    <rect x="650" y="721" width="274" height="16" rx="3" fill="#201800" stroke="#d29922" stroke-width="0.7" stroke-opacity="0.5" stroke-dasharray="3,2"/>
+    <text x="787" y="732" text-anchor="middle" font-family="-apple-system,sans-serif" font-size="8.5" fill="#d29922" opacity="0.8">⟳ swap:  Claude Haiku  ·  GPT-4o-mini  ·  Ollama (local, $0)</text>
+    <text x="516" y="753" font-family="-apple-system,sans-serif" font-size="11" fill="#8b949e">▸  Function body sent as prompt context</text>
+    <text x="516" y="770" font-family="-apple-system,sans-serif" font-size="11" fill="#8b949e">▸  "How is this specific code exploitable?"</text>
+    <text x="516" y="787" font-family="-apple-system,sans-serif" font-size="11" fill="#8b949e">▸  Response stored in llm_analysis field</text>
+    <text x="516" y="804" font-family="-apple-system,sans-serif" font-size="11" fill="#d29922">▸  ~$0.00003 per finding (Haiku pricing)</text>
+
+    <!-- arrow out of Phase 3 -->
+    <line x1="480" y1="838" x2="480" y2="874" stroke="#484f58" stroke-width="1.5" marker-end="url(#arr)"/>
+
+    <!-- ══════════════════════════════════════════════════════ -->
+    <!-- PHASE 4 · REPORTERS                                    -->
+    <!-- ══════════════════════════════════════════════════════ -->
+    <rect x="12" y="876" width="936" height="148" rx="10" fill="#091509" stroke="#3fb950" stroke-width="1" stroke-opacity="0.5"/>
+    <text x="28" y="894" font-family="-apple-system,sans-serif" font-size="10" font-weight="700" fill="#3fb950" letter-spacing="1.5">PHASE 4  ·  REPORTERS</text>
+
+    <!-- Markdown Reporter -->
+    <rect x="28" y="900" width="420" height="90" rx="8" fill="#161b22" stroke="#30363d"/>
+    <text x="44" y="919" font-family="-apple-system,sans-serif" font-size="11" font-weight="600" fill="#3fb950">Markdown Reporter</text>
+    <!-- swap badge -->
+    <rect x="160" y="907" width="280" height="15" rx="3" fill="#0d2318" stroke="#3fb950" stroke-width="0.7" stroke-opacity="0.5" stroke-dasharray="3,2"/>
+    <text x="300" y="918" text-anchor="middle" font-family="-apple-system,sans-serif" font-size="8.5" fill="#3fb950" opacity="0.8">⟳ swap:  HTML  ·  Slack webhook  ·  Jira  ·  email</text>
+    <text x="44" y="937" font-family="-apple-system,sans-serif" font-size="11" fill="#8b949e">▸  CRITICAL findings sorted first</text>
+    <text x="44" y="954" font-family="-apple-system,sans-serif" font-size="11" fill="#8b949e">▸  KB remediation + LLM analysis combined</text>
+    <text x="44" y="971" font-family="'SF Mono',monospace" font-size="10" fill="#484f58">→  audit-report.md</text>
+
+    <!-- SARIF Reporter -->
+    <rect x="500" y="900" width="432" height="90" rx="8" fill="#161b22" stroke="#30363d"/>
+    <text x="516" y="919" font-family="-apple-system,sans-serif" font-size="11" font-weight="600" fill="#3fb950">SARIF Reporter  (2.1.0)</text>
+    <!-- swap badge -->
+    <rect x="648" y="907" width="276" height="15" rx="3" fill="#0d2318" stroke="#3fb950" stroke-width="0.7" stroke-opacity="0.5" stroke-dasharray="3,2"/>
+    <text x="786" y="918" text-anchor="middle" font-family="-apple-system,sans-serif" font-size="8.5" fill="#3fb950" opacity="0.8">⟳ swap:  JUnit XML  ·  CodeClimate  ·  DefectDojo</text>
+    <text x="516" y="937" font-family="-apple-system,sans-serif" font-size="11" fill="#8b949e">▸  GitHub Code Scanning compatible</text>
+    <text x="516" y="954" font-family="-apple-system,sans-serif" font-size="11" fill="#8b949e">▸  Rule metadata from KB YAML embedded</text>
+    <text x="516" y="971" font-family="'SF Mono',monospace" font-size="10" fill="#484f58">→  audit-report.sarif</text>
+
+    <!-- ══════════════════════════════════════════════════════ -->
+    <!-- FEEDBACK LOOP + CI/CD WORKFLOW INTEGRATION             -->
+    <!-- ══════════════════════════════════════════════════════ -->
+    <!-- SARIF → GitHub Code Scanning label below Phase 4 -->
+    <line x1="716" y1="990" x2="716" y2="1016" stroke="#3fb950" stroke-width="1" stroke-opacity="0.6" marker-end="url(#arrGreen)"/>
+    <rect x="604" y="1018" width="224" height="28" rx="6" fill="#0d2318" stroke="#3fb950" stroke-width="1"/>
+    <text x="716" y="1036" text-anchor="middle" font-family="-apple-system,sans-serif" font-size="11" fill="#3fb950">GitHub Code Scanning</text>
+    <!-- PR annotations label -->
+    <text x="716" y="1058" text-anchor="middle" font-family="-apple-system,sans-serif" font-size="10" fill="#8b949e">inline PR annotations on the exact line</text>
+    <!-- Curved feedback arrow up right side back to top -->
+    <path d="M828,1032 Q950,1032 950,800 Q950,200 820,18" stroke="#3fb950" stroke-width="1.2" stroke-dasharray="5,4" fill="none" stroke-opacity="0.35" marker-end="url(#arrGreen)"/>
+    <text x="944" y="560" font-family="-apple-system,sans-serif" font-size="10" fill="#3fb950" stroke="none" opacity="0.6">re-scan</text>
+    <text x="944" y="572" font-family="-apple-system,sans-serif" font-size="10" fill="#3fb950" stroke="none" opacity="0.6">loop</text>
+
+    <!-- ══════════════════════════════════════════════════════ -->
+    <!-- YOUR EXISTING WORKFLOW                                  -->
+    <!-- ══════════════════════════════════════════════════════ -->
+    <rect x="12" y="1080" width="936" height="295" rx="10" fill="#050d0f" stroke="#3fb950" stroke-width="1" stroke-opacity="0.5"/>
+    <text x="28" y="1100" font-family="-apple-system,sans-serif" font-size="10" font-weight="700" fill="#3fb950" letter-spacing="1.5">YOUR EXISTING WORKFLOW  ·  zero pipeline changes  —  drop this tool in and it works</text>
+
+    <!-- git push box -->
+    <rect x="28" y="1110" width="190" height="238" rx="8" fill="#161b22" stroke="#30363d"/>
+    <text x="123" y="1130" text-anchor="middle" font-family="-apple-system,sans-serif" font-size="11" font-weight="600" fill="#e6edf3">1. git push</text>
+    <line x1="36" y1="1136" x2="210" y2="1136" stroke="#30363d"/>
+    <text x="44" y="1154" font-family="'SF Mono',monospace" font-size="9.5" fill="#3fb950">git push origin feat/</text>
+    <text x="44" y="1172" font-family="-apple-system,sans-serif" font-size="10" fill="#8b949e">▸  opens PR</text>
+    <text x="44" y="1189" font-family="-apple-system,sans-serif" font-size="10" fill="#8b949e">▸  triggers Actions</text>
+    <text x="44" y="1206" font-family="-apple-system,sans-serif" font-size="10" fill="#8b949e">▸  no code change</text>
+    <text x="44" y="1224" font-family="-apple-system,sans-serif" font-size="10" fill="#8b949e">▸  no new deps</text>
+    <text x="44" y="1242" font-family="-apple-system,sans-serif" font-size="10" fill="#8b949e">▸  nothing to learn</text>
+    <text x="44" y="1326" font-family="'SF Mono',monospace" font-size="8.5" fill="#484f58">on: [push, pull_request]</text>
+
+    <!-- arrow right -->
+    <line x1="218" y1="1229" x2="254" y2="1229" stroke="#484f58" stroke-width="1.5" marker-end="url(#arr)"/>
+
+    <!-- CI runs mcp-auditor -->
+    <rect x="256" y="1110" width="190" height="238" rx="8" fill="#161b22" stroke="#30363d"/>
+    <text x="351" y="1130" text-anchor="middle" font-family="-apple-system,sans-serif" font-size="11" font-weight="600" fill="#e6edf3">2. CI runs scan</text>
+    <line x1="264" y1="1136" x2="438" y2="1136" stroke="#30363d"/>
+    <text x="264" y="1154" font-family="'SF Mono',monospace" font-size="8.5" fill="#58a6ff">mcp-auditor scan src/</text>
+    <text x="264" y="1170" font-family="'SF Mono',monospace" font-size="8.5" fill="#58a6ff">  --format sarif</text>
+    <text x="264" y="1186" font-family="'SF Mono',monospace" font-size="8.5" fill="#58a6ff">  --fail-on HIGH</text>
+    <text x="264" y="1206" font-family="-apple-system,sans-serif" font-size="10" fill="#8b949e">▸  Static analysis only</text>
+    <text x="264" y="1223" font-family="-apple-system,sans-serif" font-size="10" fill="#8b949e">▸  No network access</text>
+    <text x="264" y="1240" font-family="-apple-system,sans-serif" font-size="10" fill="#8b949e">▸  No runtime needed</text>
+    <text x="264" y="1258" font-family="-apple-system,sans-serif" font-size="10" fill="#8b949e">▸  exits 1 on CRITICAL</text>
+    <text x="264" y="1326" font-family="'SF Mono',monospace" font-size="8.5" fill="#484f58">→ audit-report.sarif</text>
+
+    <!-- arrow right -->
+    <line x1="446" y1="1229" x2="482" y2="1229" stroke="#484f58" stroke-width="1.5" marker-end="url(#arr)"/>
+
+    <!-- GitHub Code Scanning -->
+    <rect x="484" y="1110" width="190" height="238" rx="8" fill="#161b22" stroke="#30363d"/>
+    <text x="579" y="1130" text-anchor="middle" font-family="-apple-system,sans-serif" font-size="11" font-weight="600" fill="#e6edf3">3. SARIF upload</text>
+    <line x1="492" y1="1136" x2="666" y2="1136" stroke="#30363d"/>
+    <text x="492" y="1154" font-family="-apple-system,sans-serif" font-size="10" fill="#8b949e">▸  upload-sarif action</text>
+    <text x="492" y="1171" font-family="-apple-system,sans-serif" font-size="10" fill="#8b949e">▸  free for public repos</text>
+    <text x="492" y="1188" font-family="-apple-system,sans-serif" font-size="10" fill="#8b949e">▸  inline PR annotations</text>
+    <text x="492" y="1205" font-family="-apple-system,sans-serif" font-size="10" fill="#8b949e">▸  exact line markers</text>
+    <text x="492" y="1222" font-family="-apple-system,sans-serif" font-size="10" fill="#8b949e">▸  reviewer sees finding</text>
+    <text x="492" y="1239" font-family="-apple-system,sans-serif" font-size="10" fill="#8b949e">▸  in the diff view</text>
+    <text x="579" y="1326" text-anchor="middle" font-family="-apple-system,sans-serif" font-size="9" fill="#3fb950">GitHub Code Scanning</text>
+
+    <!-- arrow right -->
+    <line x1="674" y1="1229" x2="710" y2="1229" stroke="#484f58" stroke-width="1.5" marker-end="url(#arr)"/>
+
+    <!-- Merge blocked -->
+    <rect x="712" y="1110" width="222" height="238" rx="8" fill="#161b22" stroke="#30363d"/>
+    <text x="823" y="1130" text-anchor="middle" font-family="-apple-system,sans-serif" font-size="11" font-weight="600" fill="#e6edf3">4. Pre-merge gate</text>
+    <line x1="720" y1="1136" x2="926" y2="1136" stroke="#30363d"/>
+    <rect x="720" y="1143" width="206" height="20" rx="3" fill="#2d0000" stroke="#f85149" stroke-width="0.8"/>
+    <text x="823" y="1157" text-anchor="middle" font-family="-apple-system,sans-serif" font-size="9.5" fill="#f85149">✗  merge blocked  —  CRITICAL found</text>
+    <text x="720" y="1183" font-family="-apple-system,sans-serif" font-size="10" fill="#8b949e">▸  Catches poisoned tools</text>
+    <text x="720" y="1200" font-family="-apple-system,sans-serif" font-size="10" fill="#8b949e">▸  before they reach prod</text>
+    <text x="720" y="1217" font-family="-apple-system,sans-serif" font-size="10" fill="#8b949e">▸  No runtime MCP needed</text>
+    <text x="720" y="1234" font-family="-apple-system,sans-serif" font-size="10" fill="#8b949e">▸  Works on dep PRs too</text>
+    <text x="720" y="1252" font-family="-apple-system,sans-serif" font-size="10" fill="#3fb950">▸  mcp-scan can't do this</text>
+    <text x="720" y="1270" font-family="-apple-system,sans-serif" font-size="10" fill="#3fb950">▸  (needs live server)</text>
+
+    <!-- local dev note at bottom -->
+    <rect x="28" y="1358" width="936" height="14" rx="3" fill="none"/>
+    <text x="480" y="1369" text-anchor="middle" font-family="-apple-system,sans-serif" font-size="10" fill="#484f58">Local dev:  mcp-auditor scan src/ --no-llm   →   instant, zero cost, same findings  ·  VS Code SARIF viewer shows inline markers</text>
+
+  </svg>
+  </div>
+</section>
+
+<!-- EXTRACTORS -->
+<section id="extractors">
+  <p class="section-label">Phase 1</p>
+  <h2>Extractors</h2>
+  <p class="section-intro">Two independent extractors covering different attack surfaces. Both produce the same <code>ThreatVector</code> schema. The pipeline treats them identically.</p>
+
+  <!-- ToolDescriptionAnalyzer -->
+  <div class="component-block">
+    <div class="component-header">
+      <div class="icon" style="background:#1a2332;">🎯</div>
+      <div>
+        <h3>ToolDescriptionAnalyzer</h3>
+        <p>Scans @mcp.tool() docstrings — the primary attack surface. Validated against 3 real-world exploits from Invariant Labs.</p>
+      </div>
+    </div>
+    <div class="component-grid">
+      <div class="component-cell cell-design">
+        <h4>Design Challenges</h4>
+        <ul>
+          <li>Real exploits live <strong>only in docstrings</strong>, not function bodies — required a separate extractor class, not an AST node walker</li>
+          <li>Rug pull pattern is <strong>structural</strong>, not textual: must detect <code>if os.path.exists() → __doc__ = ...</code> across 3 AST node types</li>
+          <li>Regex must be case-insensitive and avoid false positives on legitimate tool docs</li>
+          <li>Both <code>@mcp.tool()</code> and <code>@server.tool()</code> decorator variants must be detected</li>
+        </ul>
+      </div>
+      <div class="component-cell cell-security">
+        <h4>Security Measures</h4>
+        <ul>
+          <li>All patterns validated against 3 real known-vulnerable MCP servers before shipping</li>
+          <li><strong>Confidence.VERIFIED</strong> reserved for corpus-validated patterns only</li>
+          <li>Clean-file regression test prevents future rules from firing on benign tools</li>
+          <li>Patterns grouped by attack class — adding a new class can't silently alias an existing one</li>
+        </ul>
+      </div>
+      <div class="component-cell cell-swap">
+        <h4>What Can Be Substituted</h4>
+        <ul>
+          <li><strong>Regex patterns</strong> → Semgrep rules (same rule_id namespace, same ThreatVector output)</li>
+          <li><strong>MCP docstring scanning</strong> → any LLM framework that exposes tool descriptions (LangChain tools, OpenAI function_call schemas)</li>
+          <li><strong>Hardcoded patterns</strong> → loaded from YAML at startup for hot-reload without redeployment</li>
+        </ul>
+      </div>
+      <div class="component-cell cell-cost">
+        <h4>Cost &amp; Reuse</h4>
+        <ul>
+          <li><strong>Zero LLM calls</strong> — pure regex + AST, deterministic</li>
+          <li>All 4 rules (TPA-001, TPA-002, SHADOW-001, RUGPULL-001) are SELF_CONTAINED → router skips LLM entirely</li>
+          <li>Stateless class — one instance, any number of files, no re-initialization</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- ASTExtractor -->
+  <div class="component-block">
+    <div class="component-header">
+      <div class="icon" style="background:#1a2a1a;">🔍</div>
+      <div>
+        <h3>ASTExtractor</h3>
+        <p>Walks the Python AST to detect dangerous call patterns in function bodies: command injection, eval/exec, secret exposure, SSRF.</p>
+      </div>
+    </div>
+    <div class="component-grid">
+      <div class="component-cell cell-design">
+        <h4>Design Challenges</h4>
+        <ul>
+          <li><strong>os.system vs subprocess</strong>: os.system always invokes a shell; subprocess only dangerous with <code>shell=True</code> — two different matching strategies for similar risk</li>
+          <li><strong>os.environ[key]</strong> is a Subscript node, not a Call node — requires a separate walker branch</li>
+          <li>Popen without shell=True still deserves a flag (MEDIUM, EXPERIMENTAL) — attacker-controlled argv is still risky</li>
+          <li>Severity is <strong>HIGH not CRITICAL</strong> for most AST findings — static analysis cannot determine if input is attacker-controlled</li>
+        </ul>
+      </div>
+      <div class="component-cell cell-security">
+        <h4>Security Measures</h4>
+        <ul>
+          <li>4 separate detector functions — each returns <code>list[ThreatVector]</code>, none share state, failures are isolated</li>
+          <li>SyntaxError in target file → <strong>parse_status="failed"</strong>, warning attached, no crash</li>
+          <li>All detectors use private helper functions (<code>_is_attr_call</code>, <code>_has_shell_true</code>) — prevents callers from bypassing matching logic</li>
+          <li>Evidence field captures exact call signature — no inference, auditable</li>
+        </ul>
+      </div>
+      <div class="component-cell cell-swap">
+        <h4>What Can Be Substituted</h4>
+        <ul>
+          <li><strong>AST walking</strong> → Bandit integration (same rule_ids, Bandit findings mapped to ThreatVector with source="bandit")</li>
+          <li><strong>AST walking</strong> → Semgrep (source="semgrep")</li>
+          <li>New language support → replace ast.parse() with tree-sitter, keep same ThreatVector output</li>
+          <li>Add detectors: pickle.loads() (deserialization), yaml.load() without Loader, path traversal — each is one new private function</li>
+        </ul>
+      </div>
+      <div class="component-cell cell-cost">
+        <h4>Cost &amp; Reuse</h4>
+        <ul>
+          <li><strong>Zero LLM calls</strong> — Python stdlib ast module only</li>
+          <li>CMI-001 and CMI-003 are SELF_CONTAINED → no LLM tokens spent</li>
+          <li>CMI-002, SEC-001, SSRF-001 → NEEDS_CONTEXT, LLM called only for these 3 rule types</li>
+          <li>Same class scans any Python file — not MCP-specific, reusable for general Python auditing</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ROUTER -->
+<section id="router">
+  <p class="section-label">Phase 2</p>
+  <h2>KB Router</h2>
+  <p class="section-intro">Loads 9 YAML rules once at startup. Routes each <code>ThreatVector</code> to an <code>EnrichedFinding</code> with full rule content and a routing decision that controls LLM spend.</p>
+
+  <div class="component-block">
+    <div class="component-header">
+      <div class="icon" style="background:#231a2a;">🗂</div>
+      <div>
+        <h3>KBRouter</h3>
+        <p>The gatekeeper between deterministic analysis and probabilistic LLM reasoning. Decides what's already known vs. what needs inference.</p>
+      </div>
+    </div>
+    <div class="component-grid">
+      <div class="component-cell cell-design">
+        <h4>Design Challenges</h4>
+        <ul>
+          <li><strong>Load-once caching</strong>: 9 YAML files read at <code>__init__</code> into a <code>dict[rule_id → rule]</code> — O(1) lookup per finding, no per-file disk I/O</li>
+          <li><strong>EnrichedFinding not ThreatVector mutation</strong>: Pydantic v2 rejects extra fields → wrapper object preserves immutability of the original vector</li>
+          <li><strong>Unknown rule fallback</strong>: rule_ids not in KB get routing=NEEDS_CONTEXT, not a crash — future rules work without code changes</li>
+          <li>Dependency direction enforced: EnrichedFinding lives in threat_vector.py so reporters never import from router</li>
+        </ul>
+      </div>
+      <div class="component-cell cell-security">
+        <h4>Security Measures</h4>
+        <ul>
+          <li><strong>yaml.safe_load()</strong> — never yaml.load() which allows arbitrary Python object deserialization</li>
+          <li>YAML files are read-only rule definitions — no executable content, no user input</li>
+          <li>KB directory path validated at init — prevents directory traversal if path is configurable</li>
+          <li>Original ThreatVector is immutable inside EnrichedFinding — downstream consumers cannot modify extraction results</li>
+        </ul>
+      </div>
+      <div class="component-cell cell-swap">
+        <h4>What Can Be Substituted</h4>
+        <ul>
+          <li><strong>YAML files</strong> → SQLite database (same interface, hot-updatable without restart)</li>
+          <li><strong>YAML files</strong> → remote rules API (fetch on startup, same dict structure)</li>
+          <li><strong>Routing tiers</strong> → ML classifier trained on finding + code context → outputs routing tier</li>
+          <li>Add new rule: drop a new YAML file in kb/, no code changes needed</li>
+        </ul>
+      </div>
+      <div class="component-cell cell-cost">
+        <h4>Cost &amp; Reuse</h4>
+        <ul>
+          <li>6 of 9 rules are SELF_CONTAINED → <strong>0 LLM tokens</strong> for those findings</li>
+          <li>In a typical scan: 80%+ findings SELF_CONTAINED (the most common patterns are the best-known ones)</li>
+          <li>KBRouter is stateless after init — safe to use as a singleton across all files in a scan session</li>
+          <li>YAML rule format is language-agnostic — same KB can serve a future TypeScript or Go extractor</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <h3 style="margin-top:2rem;margin-bottom:0.5rem;font-size:1rem;">Routing Tiers — Decision Criteria</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>Tier</th>
+        <th>When to Use</th>
+        <th>LLM Call?</th>
+        <th>Example Rules</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><span class="tier-self">SELF_CONTAINED</span></td>
+        <td>Pattern alone is unambiguous. You can write a complete accurate description without seeing the actual code.</td>
+        <td style="color:var(--green)">No</td>
+        <td>TPA-001, RUGPULL-001, CMI-003</td>
+      </tr>
+      <tr>
+        <td><span class="tier-context">NEEDS_CONTEXT</span></td>
+        <td>Finding is real but severity depends on surrounding code. Is the URL hardcoded or from user input?</td>
+        <td style="color:var(--yellow)">Yes — 1 paragraph</td>
+        <td>CMI-002, SEC-001, SSRF-001</td>
+      </tr>
+      <tr>
+        <td><span class="tier-analysis">NEEDS_ANALYSIS</span></td>
+        <td>Finding uncertain. LLM reads whole file to decide real vs. false positive.</td>
+        <td style="color:var(--orange)">Yes — full file</td>
+        <td>(future rules)</td>
+      </tr>
+      <tr>
+        <td><span class="tier-chain">NEEDS_CHAIN</span></td>
+        <td>Multiple findings form an attack chain. LLM connects them into a complete exploit sequence.</td>
+        <td style="color:var(--red)">Yes — multi-step</td>
+        <td>(future rules)</td>
+      </tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- LLM ANALYSIS -->
+<section id="llm">
+  <p class="section-label">Phase 3</p>
+  <h2>LLM Analysis</h2>
+  <p class="section-intro">The deliberate constraint: LLM is only called for findings where static analysis is genuinely insufficient. The architecture was designed to minimize this surface, not maximize it.</p>
+
+  <div class="component-block">
+    <div class="component-header">
+      <div class="icon" style="background:#2a2a1a;">🤖</div>
+      <div>
+        <h3>LLM Provider (Claude Haiku)</h3>
+        <p>Adds one paragraph of code-specific context to NEEDS_CONTEXT findings. Populates <code>EnrichedFinding.llm_analysis</code>.</p>
+      </div>
+    </div>
+    <div class="component-grid">
+      <div class="component-cell cell-design">
+        <h4>Design Challenges</h4>
+        <ul>
+          <li><strong>Model choice</strong>: Claude Haiku vs Sonnet — Haiku is 15× cheaper, sufficient for "does this URL come from user input?" analysis</li>
+          <li><strong>Prompt scope</strong>: pass only the relevant function body, not the full file — smaller context = lower cost + more focused output</li>
+          <li><strong>Failure modes</strong>: LLM unavailable, rate-limited, or returns garbage → finding still output with llm_analysis=None, not dropped</li>
+          <li><strong>Output contract</strong>: LLM output is freeform text stored in one field — never parsed or trusted as structured data</li>
+        </ul>
+      </div>
+      <div class="component-cell cell-security">
+        <h4>Security Measures</h4>
+        <ul>
+          <li><strong>No user input reaches the LLM</strong> — only source code from the file being scanned and the KB rule description</li>
+          <li>LLM output stored as plain text — never eval()'d, never deserialized, never executed</li>
+          <li>API key loaded from environment variable, never hardcoded or logged</li>
+          <li>Prompt injection in analyzed code: the LLM is analyzing code <em>about</em> the code, not executing it — injection in the target file cannot affect the scanner's behavior</li>
+        </ul>
+      </div>
+      <div class="component-cell cell-swap">
+        <h4>What Can Be Substituted</h4>
+        <ul>
+          <li><strong>Claude Haiku</strong> → GPT-4o-mini, Gemini Flash — same prompt interface, swap the API client</li>
+          <li><strong>Cloud LLM</strong> → local Ollama (llama3, mistral) — airgapped environments, no data leaves the machine</li>
+          <li><strong>LLM entirely</strong> → disable with <code>--no-llm</code> flag → all findings output with llm_analysis=None, cost = $0</li>
+          <li>Add NEEDS_CHAIN support: multi-call chain over all findings in the file, same provider interface</li>
+        </ul>
+      </div>
+      <div class="component-cell cell-cost">
+        <h4>Cost &amp; Reuse</h4>
+        <ul>
+          <li>Only 3 of 9 rules ever trigger an LLM call (CMI-002, SEC-001, SSRF-001)</li>
+          <li>Claude Haiku: ~$0.00025 per 1K input tokens — analyzing one function body ≈ $0.00003</li>
+          <li>A 500-file CI scan with 20 NEEDS_CONTEXT findings ≈ <strong>$0.02 total</strong></li>
+          <li>Provider interface is one abstract method — swapping models requires changing one class</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <pre><span class="cm"># What the LLM provider receives for a NEEDS_CONTEXT finding</span>
+<span class="cm"># Rule: MCP-SSRF-001 — requests.get() detected</span>
+
+prompt = <span class="str">"""
+You are a security analyst reviewing a finding from a static analysis tool.
+
+Rule: {rule_title}
+Rule description: {rule_description}
+
+The following function triggered this rule:
+
+{function_source_code}
+
+In 2-3 sentences, explain specifically how this function's implementation
+makes it exploitable. Focus on what an attacker would need to control
+and what they could achieve.
+"""</span></pre>
+</section>
+
+<!-- REPORTERS -->
+<section id="reporters">
+  <p class="section-label">Phase 4</p>
+  <h2>Reporters</h2>
+  <p class="section-intro">Two output formats with different audiences. Both consume the same <code>list[EnrichedFinding]</code> — the reporter format is a runtime flag, not an architectural decision.</p>
+
+  <div class="component-block">
+    <div class="component-header">
+      <div class="icon" style="background:#1a2a1a;">📋</div>
+      <div>
+        <h3>Markdown Reporter</h3>
+        <p>Human-readable audit report. Designed for developer review, pull request comments, and email delivery.</p>
+      </div>
+    </div>
+    <div class="component-grid">
+      <div class="component-cell cell-design">
+        <h4>Design Challenges</h4>
+        <ul>
+          <li>Severity ordering: CRITICAL findings rendered first regardless of file order</li>
+          <li>SELF_CONTAINED findings use KB remediation directly; NEEDS_CONTEXT findings prepend LLM analysis paragraph</li>
+          <li>Evidence field rendered as inline code — never interpolated into shell commands or SQL</li>
+          <li>Summary table at top for quick triage — counts by severity, not just a flat list</li>
+        </ul>
+      </div>
+      <div class="component-cell cell-security">
+        <h4>Security Measures</h4>
+        <ul>
+          <li>All finding fields rendered as escaped Markdown — no raw HTML injection from LLM output</li>
+          <li>File paths in output are relative — absolute paths not written to reports (information disclosure)</li>
+          <li>LLM analysis output sanitized before rendering — script tags, HTML stripped</li>
+          <li>Report written to file, not stdout by default — prevents accidental credential exposure in CI logs</li>
+        </ul>
+      </div>
+      <div class="component-cell cell-swap">
+        <h4>What Can Be Substituted</h4>
+        <ul>
+          <li><strong>Markdown</strong> → HTML report with syntax-highlighted code snippets</li>
+          <li><strong>File output</strong> → GitHub PR comment via API (same EnrichedFinding input)</li>
+          <li><strong>Markdown</strong> → Jira ticket creation, Slack webhook, PagerDuty alert</li>
+          <li>All reporters share the same interface — adding a new format is one new class</li>
+        </ul>
+      </div>
+      <div class="component-cell cell-cost">
+        <h4>Cost &amp; Reuse</h4>
+        <ul>
+          <li>Zero external dependencies — Python stdlib only (pathlib, string formatting)</li>
+          <li>Idempotent: same input always produces same output — safe to re-run in CI</li>
+          <li>Stateless: reporter class has no init state, safe as a singleton</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <div class="component-block" style="margin-top:1rem;">
+    <div class="component-header">
+      <div class="icon" style="background:#1a1a2a;">🔗</div>
+      <div>
+        <h3>SARIF Reporter</h3>
+        <p>Static Analysis Results Interchange Format — the standard for CI/CD integration. Natively supported by GitHub Code Scanning, VS Code, and Azure DevOps.</p>
+      </div>
+    </div>
+    <div class="component-grid">
+      <div class="component-cell cell-design">
+        <h4>Design Challenges</h4>
+        <ul>
+          <li>SARIF requires <strong>physical locations</strong> with URI + line number — ThreatVector location field parsed to extract these</li>
+          <li>Rule metadata (id, name, help text) lives in <code>runs[].tool.driver.rules[]</code> — populated from KB YAML, deduplicated</li>
+          <li>OWASP LLM mapping in ThreatVector must translate to SARIF <code>tags</code> array</li>
+          <li>GitHub Code Scanning requires specific SARIF 2.1.0 schema — validation against schema before output</li>
+        </ul>
+      </div>
+      <div class="component-cell cell-security">
+        <h4>Security Measures</h4>
+        <ul>
+          <li>SARIF is JSON — all string values escaped, no raw finding text interpolated unsafely</li>
+          <li>File URIs in SARIF use relative paths — absolute paths not written (avoids leaking directory structure)</li>
+          <li>SARIF output validated against schema before writing — malformed output caught before CI ingestion</li>
+          <li>LLM analysis stored in SARIF <code>message.markdown</code> field — never in <code>fixes</code> or executable fields</li>
+        </ul>
+      </div>
+      <div class="component-cell cell-swap">
+        <h4>What Can Be Substituted</h4>
+        <ul>
+          <li><strong>SARIF</strong> → JUnit XML (for Jenkins/TeamCity compatibility)</li>
+          <li><strong>SARIF</strong> → CodeClimate JSON (for GitLab CI)</li>
+          <li><strong>SARIF</strong> → direct GitHub Check Annotations API — inline PR comments on the exact line</li>
+          <li>Same EnrichedFinding input, different serialization — reporter interface unchanged</li>
+        </ul>
+      </div>
+      <div class="component-cell cell-cost">
+        <h4>Cost &amp; Reuse</h4>
+        <ul>
+          <li>SARIF integrates with <strong>GitHub Code Scanning for free</strong> — findings appear as PR annotations without any additional tooling</li>
+          <li>One scan produces both reports simultaneously — no second pass needed</li>
+          <li>SARIF output consumable by any SAST dashboard (DefectDojo, SonarQube, etc.)</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- COST -->
+<section id="cost">
+  <p class="section-label">Economics</p>
+  <h2>How We Save Costs</h2>
+  <p class="section-intro">Every architectural decision was made with LLM cost in mind. The goal: spend zero tokens on findings that don't need reasoning, and spend minimal tokens on those that do.</p>
+
+  <div class="cost-grid">
+    <div class="cost-card">
+      <div class="cost-num">6/9</div>
+      <div class="cost-label">Rules are SELF_CONTAINED</div>
+      <p>The most common patterns — tool poisoning, rug pull, eval/exec — never trigger an LLM call. You get findings for free.</p>
+    </div>
+    <div class="cost-card">
+      <div class="cost-num">$0.02</div>
+      <div class="cost-label">Typical 500-file CI scan</div>
+      <p>Claude Haiku at $0.00025/1K tokens. One function body ≈ 200 tokens. 20 NEEDS_CONTEXT findings = negligible spend.</p>
+    </div>
+    <div class="cost-card">
+      <div class="cost-num">Haiku</div>
+      <div class="cost-label">Deliberate model selection</div>
+      <p>"Does this URL come from user input?" doesn't need Claude Sonnet. Haiku is 15× cheaper and sufficient for single-function analysis.</p>
+    </div>
+    <div class="cost-card">
+      <div class="cost-num">0</div>
+      <div class="cost-label">Tokens for false positives</div>
+      <p>SELF_CONTAINED findings skip LLM entirely. If os.system() fires, we already know what it is — no need to ask Claude.</p>
+    </div>
+    <div class="cost-card">
+      <div class="cost-num">--no-llm</div>
+      <div class="cost-label">Full offline mode</div>
+      <p>Disable the LLM provider entirely. All 6 SELF_CONTAINED rules still fire. Useful for local dev and cost-sensitive CI.</p>
+    </div>
+    <div class="cost-card">
+      <div class="cost-num">Function</div>
+      <div class="cost-label">Scoped context window</div>
+      <p>LLM receives only the relevant function body, not the full file. Smaller prompt = lower cost + more focused, accurate output.</p>
+    </div>
+  </div>
+</section>
+
+<!-- REUSABILITY -->
+<section id="reuse">
+  <p class="section-label">Design Principles</p>
+  <h2>How We Made It Reusable</h2>
+  <p class="section-intro">Every substitutable component was identified during design and isolated behind a clean interface. The architecture supports MCP servers today — and any Python codebase, any LLM framework, any output format tomorrow.</p>
+
+  <div class="reuse-grid">
+    <div class="reuse-card">
+      <h4>ThreatVector as Universal Contract</h4>
+      <p>Every extractor speaks the same language. Add a Semgrep extractor, a Bandit adapter, or a TypeScript AST walker — as long as it produces <code>ThreatVector</code> objects, the rest of the pipeline works unchanged.</p>
+    </div>
+    <div class="reuse-card">
+      <h4>KB as Plain YAML</h4>
+      <p>Adding a new rule is dropping a file. No code changes. No redeployment. The router discovers new rules at startup automatically. The YAML format is language-agnostic — the same KB can be shared with a future Go or Rust scanner.</p>
+    </div>
+    <div class="reuse-card">
+      <h4>LLM Provider Interface</h4>
+      <p>The provider is one class with one method: <code>enrich(finding) → str</code>. Swapping Claude for GPT-4o-mini, Gemini, or a local Ollama model is changing the implementation of that one method — not the caller.</p>
+    </div>
+    <div class="reuse-card">
+      <h4>Reporter Interface</h4>
+      <p>Both reporters implement the same interface: <code>render(findings) → str</code>. Adding a Slack webhook reporter, a Jira integration, or an HTML dashboard is one new class that no existing code needs to know about.</p>
+    </div>
+    <div class="reuse-card">
+      <h4>Routing Tier Extensibility</h4>
+      <p>The 4-tier routing schema (SELF_CONTAINED → NEEDS_CONTEXT → NEEDS_ANALYSIS → NEEDS_CHAIN) was designed for where the architecture needs to go, not just where it is today. Adding multi-step chain analysis is a new tier in the existing field.</p>
+    </div>
+    <div class="reuse-card">
+      <h4>source Field on ThreatVector</h4>
+      <p>Every finding declares its origin: <code>"native"</code> | <code>"semgrep"</code> | <code>"bandit"</code>. A Bandit adapter can produce ThreatVectors with <code>source="bandit"</code> — the reporter renders them identically, but provenance is preserved for auditing.</p>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <p>MCP Security Auditor · Python 3.14 · Pydantic v2 · 70 tests</p>
+  <p style="margin-top:0.3rem;"><a href="https://github.com/gvanvari/map-security-auditor">github.com/gvanvari/map-security-auditor</a></p>
+</footer>
+
+</body>
+</html>
