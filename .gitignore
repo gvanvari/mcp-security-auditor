@@ -1,3 +1,17 @@
 ARCHITECTURE.md
 CONTEXT.md
 DESIGN_DECISIONS.md
+tests/corpus/direct-poisoning.py
+tests/corpus/shadowing.py
+tests/corpus/whatsapp-takeover.py
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.venv/
+.env
+dist/
+build/
+ARCHITECTURE.md
+CONTEXT.md
+DESIGN_DECISIONS.md
