@@ -109,3 +109,30 @@ class ScanResult(BaseModel):
     @property
     def total_count(self) -> int:
         return len(self.findings)
+
+
+class EnrichedFinding(BaseModel):
+    """
+    A ThreatVector after KB lookup and optional LLM enrichment.
+
+    Produced by: kb/router.py
+    Consumed by: llm/provider.py (adds llm_analysis), reporters/
+
+    The ThreatVector is never mutated — it is wrapped here alongside
+    the KB rule content and the routing decision.
+    """
+
+    # The original finding from Phase 1 extraction — unchanged
+    vector: ThreatVector
+
+    # Full content of the matching YAML rule from kb/
+    rule_title: str
+    rule_description: str
+    rule_remediation: str
+    rule_references: List[str] = Field(default_factory=list)
+
+    # Routing decision from the KB
+    routing: Literal["SELF_CONTAINED", "NEEDS_CONTEXT", "NEEDS_ANALYSIS", "NEEDS_CHAIN"]
+
+    # Populated by the LLM provider (PR-6) — None until then
+    llm_analysis: Optional[str] = None
