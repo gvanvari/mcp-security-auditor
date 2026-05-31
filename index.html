@@ -415,7 +415,7 @@
   <h1>MCP <span>Security Auditor</span><br>Architecture Deep Dive</h1>
   <p>A static analysis pipeline for Model Context Protocol servers — detecting prompt injection, tool poisoning, command injection, SSRF, and secret exposure before deployment.</p>
   <div class="badge-row">
-    <span class="badge green">90 tests passing</span>
+    <span class="badge green">117 tests passing</span>
     <span class="badge blue">Python 3.14 · Pydantic v2</span>
     <span class="badge blue">4-phase pipeline</span>
     <span class="badge red">9 OWASP-mapped rules</span>
@@ -480,6 +480,8 @@
         <li><strong>18 tests</strong> — ToolDescriptionAnalyzer (corpus-driven)</li>
         <li><strong>27 tests</strong> — ASTExtractor (corpus-driven)</li>
         <li><strong>25 tests</strong> — KBRouter (hand-built fixtures, isolated)</li>
+        <li><strong>20 tests</strong> — LLM Reasoner (routing gate, injection safety, batch)</li>
+        <li><strong>27 tests</strong> — Reporters (Markdown + SARIF 2.1.0)</li>
         <li>False-positive regression tests in every suite</li>
       </ul>
     </div>
