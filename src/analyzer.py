@@ -1,0 +1,184 @@
+"""
+Analyzer — main orchestrator for the MCP Security Auditor pipeline.
+
+Phase 1: AST extraction (ASTExtractor + ToolDescriptionAnalyzer) — zero LLM
+Phase 2: KB routing (KBRouter) — enriches ThreatVectors with rule metadata
+Phase 3: LLM reasoning (ClaudeProvider) — only for NEEDS_* findings
+Phase 4: Reporting (MarkdownReporter / SARIFReporter)
+
+Entry point: mcp-auditor CLI via click.
+"""
+
+from __future__ import annotations
+
+import os
+import sys
+from pathlib import Path
+from typing import List, Optional
+
+import click
+from rich.console import Console
+from rich.panel import Panel
+
+from kb.router import KBRouter
+from src.extractors.ast_extractor import ASTExtractor
+from src.extractors.threat_vector import EnrichedFinding, ScanResult
+from src.extractors.tool_description_analyzer import ToolDescriptionAnalyzer
+from src.reporters.markdown_reporter import MarkdownReporter
+from src.reporters.sarif_reporter import SARIFReporter
+
+console = Console(stderr=True)
+
+
+class Analyzer:
+    """
+    Orchestrates all 4 phases for a single Python file.
+
+    Constructed without an API key — the LLM phase is optional and
+    only activated when api_key is provided to analyze().
+    """
+
+    def __init__(self, kb_dir: Optional[str] = None) -> None:
+        _kb_dir = kb_dir or str(Path(__file__).parent.parent / "kb")
+        self._router = KBRouter(kb_dir=_kb_dir)
+        self._ast_extractor = ASTExtractor()
+        self._desc_analyzer = ToolDescriptionAnalyzer()
+
+    def analyze(
+        self,
+        file_path: str,
+        api_key: Optional[str] = None,
+        model: str = "claude-haiku-4-5",
+    ) -> List[EnrichedFinding]:
+        """
+        Run the full pipeline on a single Python file.
+
+        Returns list[EnrichedFinding] sorted CRITICAL → LOW.
+        LLM phase is skipped when api_key is None.
+        """
+        source = Path(file_path).read_text(encoding="utf-8")
+
+        # Phase 1 — extraction (two extractors, results merged)
+        ast_result: ScanResult = self._ast_extractor.extract(source, file_path)
+        desc_result: ScanResult = self._desc_analyzer.analyze(source, file_path)
+
+        combined_vectors = ast_result.findings + desc_result.findings
+
+        # Build a merged ScanResult for the router
+        merged = ScanResult(
+            file_path=file_path,
+            findings=combined_vectors,
+            parse_status=ast_result.parse_status,
+        )
+
+        # Phase 2 — KB routing
+        enriched: List[EnrichedFinding] = self._router.route(merged)
+
+        # Phase 3 — LLM reasoning (optional)
+        if api_key:
+            from src.reasoner.claude_provider import ClaudeProvider
+
+            provider = ClaudeProvider(api_key=api_key, model=model)
+            enriched = provider.analyze_batch(enriched)
+
+        # Sort CRITICAL first
+        _order = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}
+        enriched.sort(key=lambda f: _order.get(f.vector.severity.value, 9))
+
+        return enriched
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+
+@click.command()
+@click.argument("file", type=click.Path(exists=True, readable=True))
+@click.option(
+    "--format",
+    "output_format",
+    type=click.Choice(["markdown", "sarif", "both"], case_sensitive=False),
+    default="markdown",
+    show_default=True,
+    help="Output format.",
+)
+@click.option(
+    "--output",
+    "-o",
+    type=click.Path(),
+    default=None,
+    help="Write output to file instead of stdout.",
+)
+@click.option(
+    "--llm/--no-llm",
+    default=False,
+    show_default=True,
+    help="Enable LLM enrichment via ANTHROPIC_API_KEY.",
+)
+@click.option(
+    "--model",
+    default="claude-haiku-4-5",
+    show_default=True,
+    help="Claude model to use for LLM enrichment.",
+)
+def main(
+    file: str,
+    output_format: str,
+    output: Optional[str],
+    llm: bool,
+    model: str,
+) -> None:
+    """Audit an MCP server Python file for security threats."""
+
+    api_key: Optional[str] = None
+    if llm:
+        api_key = os.environ.get("ANTHROPIC_API_KEY")
+        if not api_key:
+            console.print(
+                Panel(
+                    "[red]ANTHROPIC_API_KEY not set.[/red] "
+                    "Export it or run without --llm.",
+                    title="Error",
+                )
+            )
+            sys.exit(1)
+
+    console.print(f"[bold]Scanning[/bold] {file}...", style="blue")
+
+    analyzer = Analyzer()
+    findings = analyzer.analyze(file, api_key=api_key, model=model)
+
+    if not findings:
+        console.print("[green]No findings detected.[/green]")
+        if output:
+            Path(output).write_text("No findings detected.\n", encoding="utf-8")
+        return
+
+    console.print(f"Found [bold red]{len(findings)}[/bold red] finding(s).")
+
+    if output_format in ("markdown", "both"):
+        md = MarkdownReporter().generate(findings, file_path=file)
+        _write_or_print(md, output if output_format == "markdown" else None)
+
+    if output_format in ("sarif", "both"):
+        sarif = SARIFReporter().generate(findings, file_path=file)
+        sarif_out = output if output_format == "sarif" else (
+            output.replace(".md", ".sarif") if output else None
+        )
+        _write_or_print(sarif, sarif_out)
+
+    # Exit code 1 when findings exist — useful for CI pipelines
+    critical_or_high = any(
+        f.vector.severity.value in ("CRITICAL", "HIGH") for f in findings
+    )
+    if critical_or_high:
+        sys.exit(1)
+
+
+def _write_or_print(content: str, path: Optional[str]) -> None:
+    if path:
+        Path(path).write_text(content, encoding="utf-8")
+        console.print(f"[dim]Written to {path}[/dim]")
+    else:
+        click.echo(content)
