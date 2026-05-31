@@ -1,0 +1,28 @@
+id: MCP-SEC-001
+title: "Environment variable access — potential secret exposure"
+severity: MEDIUM
+owasp_llm: LLM06
+cwe: CWE-526
+
+description: >
+  A call to os.getenv() or an os.environ subscript was detected. Environment
+  variables commonly store secrets: API keys, tokens, database credentials,
+  cloud provider credentials. If the variable name (the key) is derived from
+  tool input, an attacker can name any environment variable and have its value
+  returned as tool output — leaking secrets to the LLM context and potentially
+  to the attacker. Even if the key is hardcoded, returning environment variable
+  values as tool output exposes them in LLM conversation history.
+
+remediation: >
+  Avoid returning environment variable values directly as tool output. If
+  configuration values are needed, load them at server startup into typed
+  configuration objects and pass only what each tool needs. Never accept
+  environment variable key names as tool parameters. If secrets must be
+  accessed, ensure the tool's return value does not include the raw secret.
+
+references:
+  - "OWASP LLM06: Sensitive Information Disclosure"
+  - "CWE-526: Cleartext Storage of Sensitive Information in an Environment Variable"
+  - "https://owasp.org/www-project-top-10-for-large-language-model-applications/"
+
+llm_routing: NEEDS_CONTEXT

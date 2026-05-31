@@ -1,0 +1,31 @@
+id: MCP-SSRF-001
+title: "Server-Side Request Forgery (SSRF) via outbound HTTP call"
+severity: HIGH
+owasp_llm: LLM02
+cwe: CWE-918
+
+description: >
+  An outbound HTTP call via the requests library was detected. If the URL or
+  any part of the request is derived from tool input parameters, an attacker
+  can direct the MCP server to make HTTP requests on their behalf. The server
+  has network access the attacker does not — including internal services,
+  cloud metadata endpoints (169.254.169.254 on AWS/GCP/Azure), and services
+  behind firewalls. A successful SSRF against a cloud metadata endpoint can
+  yield IAM credentials for the entire cloud account. The risk level depends
+  on whether the URL is hardcoded or attacker-controlled.
+
+remediation: >
+  Validate and restrict the URL before making outbound requests. Use an
+  allowlist of permitted hostnames or URL prefixes. Block requests to private
+  IP ranges (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16,
+  127.0.0.0/8) and cloud metadata endpoints. If the tool only needs to reach
+  one specific endpoint, hardcode the base URL and only allow user input for
+  path parameters after validation.
+
+references:
+  - "OWASP LLM02: Insecure Output Handling"
+  - "CWE-918: Server-Side Request Forgery"
+  - "https://owasp.org/www-project-top-10-for-large-language-model-applications/"
+  - "https://cheatsheetseries.owasp.org/cheatsheets/Server_Side_Request_Forgery_Prevention_Cheat_Sheet.html"
+
+llm_routing: NEEDS_CONTEXT

@@ -1,0 +1,29 @@
+id: MCP-RUGPULL-001
+title: "Rug pull — conditional __doc__ mutation at runtime"
+severity: CRITICAL
+owasp_llm: LLM01
+cwe: CWE-494
+
+description: >
+  The tool's __doc__ attribute is reassigned at runtime inside a conditional
+  block (typically gated on os.path.exists() checking a trigger file). On first
+  run, the tool appears benign. After the trigger file is created, subsequent
+  runs present a completely different set of LLM instructions — often including
+  data exfiltration commands. This is the rug-pull pattern: the tool passes
+  static analysis and human review on first inspection, then activates malicious
+  behavior after deployment.
+
+remediation: >
+  Tool docstrings must be static. Any runtime reassignment of __doc__ on an
+  MCP tool function is inherently suspicious — there is no legitimate reason
+  for a tool's description to change after the server starts. Remove the
+  conditional __doc__ assignment entirely. If behavior must vary, use explicit
+  runtime logic with proper logging — never by changing what the LLM is told
+  the tool does.
+
+references:
+  - "OWASP LLM01: Prompt Injection"
+  - "CWE-494: Download of Code Without Integrity Check"
+  - "https://github.com/invariantlabs-ai/mcp-injection-experiments"
+
+llm_routing: SELF_CONTAINED

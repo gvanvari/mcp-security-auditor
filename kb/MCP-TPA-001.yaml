@@ -1,0 +1,27 @@
+id: MCP-TPA-001
+title: "Credential file path in tool description"
+severity: CRITICAL
+owasp_llm: LLM01
+cwe: CWE-312
+
+description: >
+  The tool's docstring contains a reference to a sensitive credential file path
+  (e.g. ~/.ssh/id_rsa.pub, ~/.cursor/mcp.json, ~/.aws/credentials). This is the
+  direct-poisoning attack pattern: hidden instructions embedded in the tool
+  description instruct the LLM to read the file and exfiltrate its contents via
+  a tool parameter. The LLM follows these instructions silently — the user sees
+  only the tool's stated purpose.
+
+remediation: >
+  Remove all file path references from tool docstrings. Tool descriptions should
+  only describe the tool's intended behavior — never reference file system paths,
+  environment variables, or external resources. If the tool legitimately accesses
+  files, document that in code comments, not in the LLM-visible docstring.
+
+references:
+  - "OWASP LLM01: Prompt Injection"
+  - "CWE-312: Cleartext Storage of Sensitive Information"
+  - "https://github.com/invariantlabs-ai/mcp-injection-experiments"
+  - "https://owasp.org/www-project-top-10-for-large-language-model-applications/"
+
+llm_routing: SELF_CONTAINED

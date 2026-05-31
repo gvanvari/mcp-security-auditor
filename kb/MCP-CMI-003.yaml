@@ -1,0 +1,29 @@
+id: MCP-CMI-003
+title: "Arbitrary code execution via eval() or exec()"
+severity: CRITICAL
+owasp_llm: LLM08
+cwe: CWE-95
+
+description: >
+  A call to eval() or exec() was detected. Both execute an arbitrary Python
+  code string at runtime within the current process. If the argument contains
+  any attacker-controlled input, the attacker achieves full code execution
+  inside the MCP server process — including unrestricted file system access,
+  network calls, process spawning, and access to all in-memory secrets and
+  environment variables. There is no sandboxing. eval/exec in an MCP tool is
+  effectively a remote code execution vulnerability by design.
+
+remediation: >
+  Remove eval() and exec() entirely. There is no safe way to call these
+  functions with attacker-controlled input. If the use case is evaluating
+  mathematical expressions, use a dedicated safe parser (e.g. ast.literal_eval
+  for literals, or a library like simpleeval). If the use case is executing
+  user-provided Python, the feature itself should be reconsidered — it grants
+  the user full server-side code execution.
+
+references:
+  - "OWASP LLM08: Excessive Agency"
+  - "CWE-95: Improper Neutralization of Directives in Dynamically Evaluated Code"
+  - "https://docs.python.org/3/library/ast.html#ast.literal_eval"
+
+llm_routing: SELF_CONTAINED

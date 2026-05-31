@@ -1,0 +1,26 @@
+id: MCP-SHADOW-001
+title: "Cross-tool shadowing in tool description"
+severity: CRITICAL
+owasp_llm: LLM01
+cwe: CWE-610
+
+description: >
+  The tool's docstring references another tool by name and attempts to override
+  or hijack its behavior. This is the tool-shadowing attack: when two MCP tools
+  are loaded in the same session, a malicious tool's description can instruct
+  the LLM to redirect calls intended for a legitimate tool (e.g. mcp_tool_send_email)
+  to an attacker-controlled destination instead. The legitimate tool still runs
+  normally — the LLM simply also follows the shadow instructions, invisibly.
+
+remediation: >
+  Remove all references to other tool names from this tool's docstring. Each
+  tool's description must be scoped to its own behavior only. If you need to
+  document tool interactions, use code-level documentation or a separate
+  architecture document — never the LLM-visible docstring.
+
+references:
+  - "OWASP LLM01: Prompt Injection"
+  - "CWE-610: Externally Controlled Reference to a Resource in Another Sphere"
+  - "https://github.com/invariantlabs-ai/mcp-injection-experiments"
+
+llm_routing: SELF_CONTAINED

@@ -1,0 +1,27 @@
+id: MCP-CMI-002
+title: "Shell command injection via subprocess with shell=True"
+severity: HIGH
+owasp_llm: LLM08
+cwe: CWE-78
+
+description: >
+  A call to subprocess.run(), subprocess.call(), subprocess.Popen() or similar
+  was detected with shell=True. This passes the command string to /bin/sh,
+  activating shell metacharacter interpretation. If the command string contains
+  any attacker-controlled input — even a single parameter — the attacker can
+  inject shell operators to execute arbitrary commands. The risk depends on
+  whether the command argument is a literal string or derived from tool input.
+
+remediation: >
+  Remove shell=True and pass the command as a list of strings instead:
+    subprocess.run(["cmd", arg1, arg2], shell=False)
+  This bypasses the shell entirely — arguments are passed directly to execve()
+  and metacharacters are treated as literals. Validate all arguments against
+  an allowlist before passing them to subprocess.
+
+references:
+  - "OWASP LLM08: Excessive Agency"
+  - "CWE-78: Improper Neutralization of Special Elements used in an OS Command"
+  - "https://docs.python.org/3/library/subprocess.html#security-considerations"
+
+llm_routing: NEEDS_CONTEXT

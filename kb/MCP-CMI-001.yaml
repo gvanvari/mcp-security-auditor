@@ -1,0 +1,26 @@
+id: MCP-CMI-001
+title: "Shell command injection via os.system() or os.popen()"
+severity: HIGH
+owasp_llm: LLM08
+cwe: CWE-78
+
+description: >
+  A call to os.system() or os.popen() was detected. Both functions pass their
+  argument directly to /bin/sh for execution — there is no shell=False option.
+  If any part of the command string is derived from tool input parameters, an
+  attacker can inject shell metacharacters (;, |, &&, $()) to execute arbitrary
+  commands on the host running the MCP server. The MCP server process inherits
+  the host's file system permissions, environment variables, and network access.
+
+remediation: >
+  Replace os.system() and os.popen() with subprocess.run() using a validated
+  argument list and shell=False. Never construct shell command strings by
+  concatenating or formatting user-supplied input. If a shell command is
+  genuinely required, validate and allowlist all input values before use.
+
+references:
+  - "OWASP LLM08: Excessive Agency"
+  - "CWE-78: Improper Neutralization of Special Elements used in an OS Command"
+  - "https://docs.python.org/3/library/subprocess.html#security-considerations"
+
+llm_routing: SELF_CONTAINED

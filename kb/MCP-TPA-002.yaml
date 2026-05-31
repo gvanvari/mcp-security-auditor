@@ -1,0 +1,29 @@
+id: MCP-TPA-002
+title: "Hidden instruction markers in tool description"
+severity: CRITICAL
+owasp_llm: LLM01
+cwe: CWE-77
+
+description: >
+  The tool's docstring contains markers used in known prompt injection attacks:
+  <IMPORTANT> tags, concealment phrases ("do not mention", "do not notify"),
+  coercive phrases ("the application will crash"), or data exfiltration
+  instructions ("pass its content", "pass the content"). These markers are
+  designed to give the LLM instructions it will follow without the user's
+  knowledge. This pattern appears in all three confirmed MCP exploit files from
+  Invariant Labs.
+
+remediation: >
+  Remove all instruction-like language from tool docstrings. A legitimate tool
+  description describes what the tool does — it never tells the LLM to conceal
+  actions, pass data to parameters, or perform side effects. Review the full
+  docstring for any imperative sentences directed at the LLM rather than at
+  human readers.
+
+references:
+  - "OWASP LLM01: Prompt Injection"
+  - "CWE-77: Improper Neutralization of Special Elements used in a Command"
+  - "https://github.com/invariantlabs-ai/mcp-injection-experiments"
+  - "https://owasp.org/www-project-top-10-for-large-language-model-applications/"
+
+llm_routing: SELF_CONTAINED
