@@ -8,18 +8,18 @@ Each test class covers one corpus file. Tests assert on:
   - severity and confidence levels
 
 Files:
-  tests/corpus/cmd-injection.py  — os.system, subprocess.run(shell=True), subprocess.Popen
-  tests/corpus/eval-exec.py      — eval(), exec()
-  tests/corpus/env-leak.py       — os.environ[key], os.getenv()
-  tests/corpus/http-exfil.py     — requests.get/post (SSRF / exfiltration)
-  tests/corpus/clean-body.py     — false positive regression: no dangerous calls
+  eval/corpus/cmd-injection.py  — os.system, subprocess.run(shell=True), subprocess.Popen
+  eval/corpus/eval-exec.py      — eval(), exec()
+  eval/corpus/env-leak.py       — os.environ[key], os.getenv()
+  eval/corpus/http-exfil.py     — requests.get/post (SSRF / exfiltration)
+  eval/corpus/clean-body.py     — false positive regression: no dangerous calls
 """
 
 import pytest
 from pathlib import Path
 
-from src.extractors.ast_extractor import ASTExtractor
-from src.extractors.threat_vector import ThreatVectorType, Severity, Confidence
+from mcp_auditor.extractors.ast_extractor import ASTExtractor
+from mcp_auditor.extractors.threat_vector import ThreatVectorType, Severity, Confidence
 
 CORPUS = Path(__file__).parent / "corpus"
 extractor = ASTExtractor()

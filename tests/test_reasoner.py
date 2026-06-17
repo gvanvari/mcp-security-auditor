@@ -17,14 +17,14 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from src.extractors.threat_vector import (
+from mcp_auditor.extractors.threat_vector import (
     Confidence,
     EnrichedFinding,
     Severity,
     ThreatVector,
     ThreatVectorType,
 )
-from src.reasoner.claude_provider import ClaudeProvider, _build_prompt
+from mcp_auditor.reasoner.claude_provider import ClaudeProvider, _build_prompt
 
 
 # ---------------------------------------------------------------------------

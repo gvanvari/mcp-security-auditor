@@ -19,10 +19,10 @@ from typing import List
 
 import yaml
 
-from src.extractors.threat_vector import EnrichedFinding, ScanResult, ThreatVector
+from mcp_auditor.extractors.threat_vector import EnrichedFinding, ScanResult, ThreatVector
 
-# Default kb/ directory — adjacent to this file's parent (project root/kb/)
-_DEFAULT_KB_DIR = Path(__file__).parent.parent / "kb"
+# Default kb/ directory — same directory as this file (mcp_auditor/kb/)
+_DEFAULT_KB_DIR = Path(__file__).parent
 
 
 class KBRouter:

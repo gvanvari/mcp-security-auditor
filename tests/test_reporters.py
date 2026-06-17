@@ -12,15 +12,15 @@ from typing import List
 
 import pytest
 
-from src.extractors.threat_vector import (
+from mcp_auditor.extractors.threat_vector import (
     Confidence,
     EnrichedFinding,
     Severity,
     ThreatVector,
     ThreatVectorType,
 )
-from src.reporters.markdown_reporter import MarkdownReporter
-from src.reporters.sarif_reporter import SARIFReporter
+from mcp_auditor.reporters.markdown_reporter import MarkdownReporter
+from mcp_auditor.reporters.sarif_reporter import SARIFReporter
 
 
 # ---------------------------------------------------------------------------
@@ -92,7 +92,7 @@ class TestMarkdownReporter:
 
     def test_file_path_shown_when_provided(self):
         findings = [_make_finding()]
-        md = self.reporter.generate(findings, file_path="tests/corpus/direct-poisoning.py")
+        md = self.reporter.generate(findings, file_path="eval/corpus/direct-poisoning.py")
         assert "direct-poisoning.py" in md
 
     def test_summary_table_contains_severity_labels(self):

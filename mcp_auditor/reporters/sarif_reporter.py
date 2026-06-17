@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 from typing import Any, Dict, List
 
-from src.extractors.threat_vector import EnrichedFinding, Severity
+from mcp_auditor.extractors.threat_vector import EnrichedFinding, Severity
 
 _TOOL_NAME = "mcp-security-auditor"
 _TOOL_VERSION = "0.1.0"

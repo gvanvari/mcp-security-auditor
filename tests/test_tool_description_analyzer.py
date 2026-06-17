@@ -5,16 +5,16 @@ These are the ground truth tests. If these fail, our most important extractor
 is broken. Each test is named after the real exploit file it tests against.
 
 Files:
-  tests/corpus/direct-poisoning.py   — SSH key + mcp.json exfiltration via hidden docstring
-  tests/corpus/shadowing.py          — Email hijack via cross-tool docstring override
-  tests/corpus/whatsapp-takeover.py  — Rug pull + WhatsApp message exfiltration
+  eval/corpus/direct-poisoning.py   — SSH key + mcp.json exfiltration via hidden docstring
+  eval/corpus/shadowing.py          — Email hijack via cross-tool docstring override
+  eval/corpus/whatsapp-takeover.py  — Rug pull + WhatsApp message exfiltration
 """
 
 import pytest
 from pathlib import Path
 
-from src.extractors.tool_description_analyzer import ToolDescriptionAnalyzer
-from src.extractors.threat_vector import ThreatVectorType, Severity, Confidence
+from mcp_auditor.extractors.tool_description_analyzer import ToolDescriptionAnalyzer
+from mcp_auditor.extractors.threat_vector import ThreatVectorType, Severity, Confidence
 
 CORPUS = Path(__file__).parent / "corpus"
 analyzer = ToolDescriptionAnalyzer()

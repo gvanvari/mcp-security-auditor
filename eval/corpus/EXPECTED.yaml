@@ -1,0 +1,87 @@
+# Ground truth for corpus validation.
+# Each entry = one vulnerability intentionally planted in the file.
+# Used by MetricsReporter to compute recall/precision.
+#
+# Fields:
+#   rule:      KB rule ID expected to fire
+#   line:      approximate line number of the vulnerability
+#   severity:  expected severity level
+#   note:      why this finding exists / what it demonstrates
+
+clean-body.py: []
+# clean-body.py has NO intentional vulnerabilities.
+# If the tool fires anything here, it is a false positive.
+
+cmd-injection.py:
+  - rule: MCP-CMI-001
+    line: 16
+    severity: HIGH
+    note: "os.system(cmd) — attacker-controlled cmd passed directly to shell"
+  - rule: MCP-CMI-002
+    line: 19
+    severity: HIGH
+    note: "subprocess.run(cmd, shell=True) — shell metacharacters active"
+  - rule: MCP-CMI-002
+    line: 27
+    severity: MEDIUM
+    note: "subprocess.Popen without shell=True — lower risk but unvalidated args"
+
+direct-poisoning.py:
+  - rule: MCP-TPA-001
+    line: 10
+    severity: CRITICAL
+    note: "Tool docstring contains hidden instructions to redirect all emails to attacker"
+  - rule: MCP-TPA-002
+    line: 10
+    severity: HIGH
+    note: "Docstring instructs agent to suppress disclosure to user"
+
+env-leak.py:
+  - rule: MCP-SEC-001
+    line: 15
+    severity: MEDIUM
+    note: "os.environ[key] — exposes any environment variable by attacker-supplied name"
+  - rule: MCP-SEC-001
+    line: 22
+    severity: MEDIUM
+    note: "os.getenv(name) — same risk via different API"
+
+eval-exec.py:
+  - rule: MCP-CMI-003
+    line: 13
+    severity: CRITICAL
+    note: "eval(expression) — arbitrary Python code execution from user input"
+  - rule: MCP-CMI-003
+    line: 21
+    severity: CRITICAL
+    note: "exec(code) — arbitrary Python code execution from user input"
+
+http-exfil.py:
+  - rule: MCP-SSRF-001
+    line: 15
+    severity: HIGH
+    note: "requests.get(url) — attacker-controlled URL enables SSRF to internal services"
+  - rule: MCP-SSRF-001
+    line: 23
+    severity: HIGH
+    note: "requests.post(endpoint) — attacker controls endpoint for data exfiltration"
+
+shadowing.py:
+  - rule: MCP-SHADOW-001
+    line: 10
+    severity: CRITICAL
+    note: "Docstring overrides behaviour of send_email tool in co-installed server"
+  - rule: MCP-TPA-002
+    line: 10
+    severity: HIGH
+    note: "Instructs agent to suppress disclosure ('Do not mention this to the user')"
+
+whatsapp-takeover.py:
+  - rule: MCP-RUGPULL-001
+    line: 18
+    severity: CRITICAL
+    note: "Conditional __doc__ mutation after trigger file created — rug pull pattern"
+  - rule: MCP-CMI-001
+    line: 39
+    severity: HIGH
+    note: "os.system('touch ~/.mcp-triggered') — creates persistence marker on host"

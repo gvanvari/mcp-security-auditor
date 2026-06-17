@@ -20,12 +20,15 @@ import click
 from rich.console import Console
 from rich.panel import Panel
 
-from kb.router import KBRouter
-from src.extractors.ast_extractor import ASTExtractor
-from src.extractors.threat_vector import EnrichedFinding, ScanResult
-from src.extractors.tool_description_analyzer import ToolDescriptionAnalyzer
-from src.reporters.markdown_reporter import MarkdownReporter
-from src.reporters.sarif_reporter import SARIFReporter
+from mcp_auditor.kb.router import KBRouter
+from mcp_auditor.extractors.ast_extractor import ASTExtractor
+from mcp_auditor.extractors.threat_vector import EnrichedFinding, ScanResult
+from mcp_auditor.extractors.tool_description_analyzer import ToolDescriptionAnalyzer
+from mcp_auditor.reporters.markdown_reporter import MarkdownReporter
+from mcp_auditor.reporters.sarif_reporter import SARIFReporter
+from mcp_auditor.reporters.html_reporter import HTMLReporter
+from mcp_auditor.reporters.comparison_reporter import ComparisonReporter
+from mcp_auditor.reporters.metrics_reporter import MetricsReporter
 
 console = Console(stderr=True)
 
@@ -39,7 +42,7 @@ class Analyzer:
     """
 
     def __init__(self, kb_dir: Optional[str] = None) -> None:
-        _kb_dir = kb_dir or str(Path(__file__).parent.parent / "kb")
+        _kb_dir = Path(kb_dir) if kb_dir else Path(__file__).parent / "kb"
         self._router = KBRouter(kb_dir=_kb_dir)
         self._ast_extractor = ASTExtractor()
         self._desc_analyzer = ToolDescriptionAnalyzer()
@@ -56,11 +59,9 @@ class Analyzer:
         Returns list[EnrichedFinding] sorted CRITICAL → LOW.
         LLM phase is skipped when api_key is None.
         """
-        source = Path(file_path).read_text(encoding="utf-8")
-
         # Phase 1 — extraction (two extractors, results merged)
-        ast_result: ScanResult = self._ast_extractor.extract(source, file_path)
-        desc_result: ScanResult = self._desc_analyzer.analyze(source, file_path)
+        ast_result: ScanResult = self._ast_extractor.analyze(file_path)
+        desc_result: ScanResult = self._desc_analyzer.analyze(file_path)
 
         combined_vectors = ast_result.findings + desc_result.findings
 
@@ -76,7 +77,7 @@ class Analyzer:
 
         # Phase 3 — LLM reasoning (optional)
         if api_key:
-            from src.reasoner.claude_provider import ClaudeProvider
+            from mcp_auditor.reasoner.claude_provider import ClaudeProvider
 
             provider = ClaudeProvider(api_key=api_key, model=model)
             enriched = provider.analyze_batch(enriched)
@@ -98,7 +99,7 @@ class Analyzer:
 @click.option(
     "--format",
     "output_format",
-    type=click.Choice(["markdown", "sarif", "both"], case_sensitive=False),
+    type=click.Choice(["markdown", "sarif", "html", "both"], case_sensitive=False),
     default="markdown",
     show_default=True,
     help="Output format.",
@@ -161,6 +162,10 @@ def main(
         md = MarkdownReporter().generate(findings, file_path=file)
         _write_or_print(md, output if output_format == "markdown" else None)
 
+    if output_format == "html":
+        report = HTMLReporter().generate(findings, file_path=file)
+        _write_or_print(report, output)
+
     if output_format in ("sarif", "both"):
         sarif = SARIFReporter().generate(findings, file_path=file)
         sarif_out = output if output_format == "sarif" else (
@@ -182,3 +187,93 @@ def _write_or_print(content: str, path: Optional[str]) -> None:
         console.print(f"[dim]Written to {path}[/dim]")
     else:
         click.echo(content)
+
+
+@click.command()
+@click.argument("directory", type=click.Path(exists=True, file_okay=False))
+@click.option(
+    "--output-dir", "-o",
+    type=click.Path(),
+    default="eval/results/corpus",
+    show_default=True,
+    help="Directory to write reports into.",
+)
+@click.option(
+    "--llm/--no-llm",
+    default=False,
+    show_default=True,
+    help="Enable LLM enrichment via ANTHROPIC_API_KEY.",
+)
+@click.option(
+    "--model",
+    default="claude-haiku-4-5",
+    show_default=True,
+    help="Claude model for LLM enrichment.",
+)
+def scan_all(
+    directory: str,
+    output_dir: str,
+    llm: bool,
+    model: str,
+) -> None:
+    """Scan all .py files in DIRECTORY and produce individual + comparison reports."""
+    api_key: Optional[str] = None
+    if llm:
+        api_key = os.environ.get("ANTHROPIC_API_KEY")
+        if not api_key:
+            console.print("[red]ANTHROPIC_API_KEY not set.[/red]")
+            sys.exit(1)
+
+    out = Path(output_dir)
+    out.mkdir(parents=True, exist_ok=True)
+
+    py_files = sorted(Path(directory).glob("*.py"))
+    if not py_files:
+        console.print(f"[yellow]No .py files found in {directory}[/yellow]")
+        return
+
+    analyzer = Analyzer()
+    html_reporter = HTMLReporter()
+    all_results: dict = {}
+
+    for py_file in py_files:
+        console.print(f"  Scanning [bold]{py_file.name}[/bold]...", style="blue")
+        findings = analyzer.analyze(str(py_file), api_key=api_key, model=model)
+        all_results[py_file.stem] = findings
+
+        # Individual HTML report
+        report_path = out / f"{py_file.stem}-report.html"
+        report_path.write_text(
+            html_reporter.generate(findings, file_path=str(py_file)),
+            encoding="utf-8",
+        )
+        console.print(f"    → {report_path} ({len(findings)} findings)", style="dim")
+
+    # Comparison report across all MCPs
+    comparison_path = out / "comparison-report.html"
+    comparison_path.write_text(
+        ComparisonReporter().generate(all_results),
+        encoding="utf-8",
+    )
+
+    # Metrics / validation report — only if EXPECTED.yaml exists next to the scanned dir
+    expected_yaml = Path(directory) / "EXPECTED.yaml"
+    if expected_yaml.exists():
+        import yaml
+        expected = yaml.safe_load(expected_yaml.read_text(encoding="utf-8")) or {}
+        # Strip empty lists (files with no expected findings)
+        expected = {k: v for k, v in expected.items() if v}
+        metrics_path = out / "metrics-report.html"
+        metrics_path.write_text(
+            MetricsReporter().generate(all_results, expected),
+            encoding="utf-8",
+        )
+        console.print(f"[dim]Metrics:    {metrics_path}[/dim]")
+
+    total = sum(len(v) for v in all_results.values())
+    console.print(
+        f"\n[green]Done.[/green] Scanned {len(py_files)} files, "
+        f"{total} total findings."
+    )
+    console.print(f"[dim]Reports: {out}/[/dim]")
+    console.print(f"[dim]Comparison: {comparison_path}[/dim]")

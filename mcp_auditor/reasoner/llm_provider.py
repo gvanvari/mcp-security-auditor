@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
-from src.extractors.threat_vector import EnrichedFinding
+from mcp_auditor.extractors.threat_vector import EnrichedFinding
 
 
 class LLMProvider(ABC):

@@ -20,8 +20,8 @@ import os
 
 import anthropic
 
-from src.extractors.threat_vector import EnrichedFinding
-from src.reasoner.llm_provider import LLMProvider
+from mcp_auditor.extractors.threat_vector import EnrichedFinding
+from mcp_auditor.reasoner.llm_provider import LLMProvider
 
 # Default model — Haiku for cost efficiency (~$0.02/scan)
 _DEFAULT_MODEL = "claude-haiku-4-5"

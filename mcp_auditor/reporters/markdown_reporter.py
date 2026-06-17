@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import List
 
-from src.extractors.threat_vector import EnrichedFinding, Severity
+from mcp_auditor.extractors.threat_vector import EnrichedFinding, Severity
 
 # Severity display order — highest risk first
 _SEVERITY_ORDER = {

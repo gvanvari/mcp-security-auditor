@@ -23,7 +23,15 @@ dev = [
 ]
 
 [project.scripts]
-mcp-auditor = "src.cli:main"
+mcp-auditor = "mcp_auditor.analyzer:main"
+mcp-auditor-all = "mcp_auditor.analyzer:scan_all"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["mcp_auditor*"]
+
+[tool.setuptools.package-data]
+mcp_auditor = ["kb/*.yaml"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

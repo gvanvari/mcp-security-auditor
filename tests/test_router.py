@@ -16,8 +16,8 @@ Test classes:
 import pytest
 from pathlib import Path
 
-from kb.router import KBRouter
-from src.extractors.threat_vector import (
+from mcp_auditor.kb.router import KBRouter
+from mcp_auditor.extractors.threat_vector import (
     Confidence,
     EnrichedFinding,
     ScanResult,
