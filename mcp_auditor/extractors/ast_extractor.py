@@ -234,7 +234,7 @@ def _detect_env_access(tree: ast.Module, file_path: str) -> list[ThreatVector]:
 
 def _detect_http_calls(tree: ast.Module, file_path: str) -> list[ThreatVector]:
     """
-    Detect outbound HTTP calls via the requests library.
+    Detect outbound HTTP calls via the requests or httpx libraries.
     These are SSRF candidates: if the URL is attacker-controlled the tool
     can probe internal services, cloud metadata endpoints (169.254.169.254),
     or exfiltrate data to external hosts.
@@ -242,28 +242,125 @@ def _detect_http_calls(tree: ast.Module, file_path: str) -> list[ThreatVector]:
     findings: list[ThreatVector] = []
 
     HTTP_METHODS = {"get", "post", "put", "patch", "delete", "request"}
+    # httpx is async-native and widely used in MCP servers alongside requests
+    HTTP_MODULES = {"requests", "httpx"}
 
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
             continue
 
-        for method in HTTP_METHODS:
-            if _is_attr_call(node, "requests", method):
-                findings.append(ThreatVector(
-                    rule_id="MCP-SSRF-001",
-                    type=ThreatVectorType.SSRF,
-                    severity=Severity.HIGH,
-                    confidence=Confidence.PROPOSED,
-                    location=f"{file_path}:{node.lineno}",
-                    evidence=f"requests.{method}(...)",
-                    description=(
-                        f"requests.{method}() makes an outbound HTTP call. If the URL is "
-                        f"attacker-controlled this enables SSRF: the attacker can probe "
-                        f"internal services, reach cloud metadata endpoints "
-                        f"(169.254.169.254), or exfiltrate data to an external host."
-                    ),
-                    owasp_llm="LLM02",
-                ))
+        for module in HTTP_MODULES:
+            for method in HTTP_METHODS:
+                if _is_attr_call(node, module, method):
+                    findings.append(ThreatVector(
+                        rule_id="MCP-SSRF-001",
+                        type=ThreatVectorType.SSRF,
+                        severity=Severity.HIGH,
+                        confidence=Confidence.PROPOSED,
+                        location=f"{file_path}:{node.lineno}",
+                        evidence=f"{module}.{method}(...)",
+                        description=(
+                            f"{module}.{method}() makes an outbound HTTP call. If the URL is "
+                            f"attacker-controlled this enables SSRF: the attacker can probe "
+                            f"internal services, reach cloud metadata endpoints "
+                            f"(169.254.169.254), or exfiltrate data to an external host."
+                        ),
+                        owasp_llm="LLM02",
+                    ))
+
+    return findings
+
+
+def _detect_url_param_forwarding(tree: ast.Module, file_path: str) -> list[ThreatVector]:
+    """
+    Detect MCP tool parameters with URL-like names forwarded directly into
+    third-party library method calls without validation.
+
+    Pattern caught:
+        async def convert_to_markdown(uri: str) -> str:
+            return MarkItDown().convert_uri(uri).markdown
+
+    Direct HTTP library calls (requests.*, httpx.*) are already caught by
+    _detect_http_calls.  This rule catches library-mediated fetches where a
+    url/uri argument is delegated to an opaque third-party object method.
+    """
+    findings: list[ThreatVector] = []
+
+    URL_LIKE_PARAMS = {"url", "uri", "href", "link", "endpoint"}
+    # Already covered by _detect_http_calls — skip to avoid duplicate findings
+    KNOWN_HTTP_MODULES = {"requests", "httpx", "urllib"}
+
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+
+        # Collect URL-like parameter names declared on this function
+        url_params = {
+            arg.arg for arg in node.args.args
+            if arg.arg.lower() in URL_LIKE_PARAMS
+        }
+        if not url_params:
+            continue
+
+        # Walk the function body for calls that forward a url param
+        for child in ast.walk(node):
+            if not isinstance(child, ast.Call):
+                continue
+            # Only flag attribute calls (obj.method(...)) — bare builtins are
+            # already caught elsewhere and this pattern targets library objects
+            if not isinstance(child.func, ast.Attribute):
+                continue
+            # Skip known HTTP modules to avoid duplicating _detect_http_calls
+            if (
+                isinstance(child.func.value, ast.Name)
+                and child.func.value.id in KNOWN_HTTP_MODULES
+            ):
+                continue
+
+            # Check positional args
+            for arg in child.args:
+                if isinstance(arg, ast.Name) and arg.id in url_params:
+                    findings.append(ThreatVector(
+                        rule_id="MCP-SSRF-001",
+                        type=ThreatVectorType.SSRF,
+                        severity=Severity.HIGH,
+                        confidence=Confidence.EXPERIMENTAL,
+                        location=f"{file_path}:{child.lineno}",
+                        evidence=f"{arg.id} forwarded into .{child.func.attr}(...)",
+                        description=(
+                            f"Tool parameter '{arg.id}' (a URL/URI) is forwarded directly "
+                            f"into a third-party library method .{child.func.attr}(). "
+                            f"If the library performs an outbound HTTP request, this is an "
+                            f"unvalidated SSRF: the attacker can probe internal services, "
+                            f"reach cloud metadata endpoints (169.254.169.254), or "
+                            f"exfiltrate data to an external host."
+                        ),
+                        owasp_llm="LLM02",
+                    ))
+                    break  # one finding per call site is sufficient
+
+            # Check keyword args (e.g., some_method(uri=uri))
+            for kw in child.keywords:
+                if isinstance(kw.value, ast.Name) and kw.value.id in url_params:
+                    findings.append(ThreatVector(
+                        rule_id="MCP-SSRF-001",
+                        type=ThreatVectorType.SSRF,
+                        severity=Severity.HIGH,
+                        confidence=Confidence.EXPERIMENTAL,
+                        location=f"{file_path}:{child.lineno}",
+                        evidence=f"{kw.value.id} forwarded into .{child.func.attr}(...)",
+                        description=(
+                            f"Tool parameter '{kw.value.id}' (a URL/URI) is forwarded "
+                            f"directly into a third-party library method "
+                            f".{child.func.attr}(). "
+                            f"If the library performs an outbound HTTP request, this is an "
+                            f"unvalidated SSRF: the attacker can probe internal services, "
+                            f"reach cloud metadata endpoints (169.254.169.254), or "
+                            f"exfiltrate data to an external host."
+                        ),
+                        owasp_llm="LLM02",
+                    ))
+                    break
 
     return findings
 
@@ -292,6 +389,7 @@ class ASTExtractor:
         findings.extend(_detect_eval_exec(tree, file_path))
         findings.extend(_detect_env_access(tree, file_path))
         findings.extend(_detect_http_calls(tree, file_path))
+        findings.extend(_detect_url_param_forwarding(tree, file_path))
 
         return ScanResult(
             file_path=file_path,

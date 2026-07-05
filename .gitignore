@@ -1,13 +1,5 @@
-ARCHITECTURE.md
-CONTEXT.md
-DESIGN_DECISIONS.md
-eval/corpus/direct-poisoning.py
-eval/corpus/shadowing.py
-eval/corpus/whatsapp-takeover.py
 eval/real-mcps/
-eval/results/corpus/
-# Real MCP results are committed (portfolio evidence)
-# eval/results/real-mcps/ is NOT gitignored
+eval/results/real-mcps/
 __pycache__/
 *.pyc
 *.pyo
@@ -20,3 +12,4 @@ ARCHITECTURE.md
 CONTEXT.md
 DESIGN_DECISIONS.md
 LINKEDIN_POSTS.md
+eval/real-mcps/EVAL_PLAN.md
