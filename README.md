@@ -32,18 +32,42 @@ pip install -e .
 ## Usage
 
 ```bash
-# Scan a single MCP server file
+# Scan a single MCP server file (AST + KB rules only — no LLM, no network)
 mcp-auditor path/to/mcp_server.py
 
 # Save an HTML report
 mcp-auditor path/to/mcp_server.py --format html -o report.html
 
-# Markdown output
-mcp-auditor path/to/mcp_server.py --format markdown
+# Markdown output written to a file
+mcp-auditor path/to/mcp_server.py --format markdown -o report.md
 
-# With LLM reasoning (requires Anthropic API key)
-mcp-auditor path/to/mcp_server.py --api-key $ANTHROPIC_API_KEY
+# SARIF output (for GitHub Code Scanning / CI integration)
+mcp-auditor path/to/mcp_server.py --format sarif -o results.sarif
+
+# Enable LLM enrichment (reads ANTHROPIC_API_KEY from the environment)
+export ANTHROPIC_API_KEY=sk-ant-...
+mcp-auditor path/to/mcp_server.py --llm
+
+# LLM enrichment with a specific model
+mcp-auditor path/to/mcp_server.py --llm --model claude-opus-4-5
 ```
+
+### LLM enrichment
+
+When `--llm` is passed, the auditor runs a third phase where Claude analyses
+multi-vector threat chains that deterministic rules alone cannot resolve.
+
+**The API key is read from the `ANTHROPIC_API_KEY` environment variable —
+there is no `--api-key` flag.** The flag is intentionally absent to prevent
+secrets appearing in shell history or CI logs.
+
+```bash
+export ANTHROPIC_API_KEY=sk-ant-...          # set once in your shell / CI secret
+mcp-auditor eval/corpus/direct-poisoning.py --llm
+```
+
+Running without `--llm` (the default, equivalent to `--no-llm`) never contacts
+any external service and requires no credentials.
 
 ---
 
