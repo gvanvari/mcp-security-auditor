@@ -21,7 +21,7 @@ from pathlib import Path
 from mcp_auditor.extractors.ast_extractor import ASTExtractor
 from mcp_auditor.extractors.threat_vector import ThreatVectorType, Severity, Confidence
 
-CORPUS = Path(__file__).parent / "corpus"
+CORPUS = Path(__file__).parent.parent / "eval" / "corpus"
 extractor = ASTExtractor()
 
 

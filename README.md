@@ -1,5 +1,8 @@
 # MCP Security Auditor
 
+[![CI](https://github.com/gvanvari/mcp-security-auditor/actions/workflows/ci.yml/badge.svg)](https://github.com/gvanvari/mcp-security-auditor/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 Static security analysis for Model Context Protocol (MCP) servers. Finds supply chain threats — tool poisoning, SSRF, command injection, secret exposure — before a malicious MCP reaches your agent pipeline.
 
 **[Architecture & Demo →](https://gvanvari.github.io/mcp-security-auditor/)** (GitHub Pages)
