@@ -38,16 +38,16 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install dependencies + security tools
-        run: pip install -e ".[dev]" bandit pip-audit
+      - name: Install security tools
+        run: pip install bandit pip-audit
 
       - name: SAST — Bandit source scan
         run: bandit -r mcp_auditor/ -ll -q
 
-      - name: SCA — pip-audit dependency scan
-        # --skip-editable: the project itself is installed via `pip install -e .`
-        # and has no PyPI release, so it can't be resolved; audit real deps only.
-        # --strict is omitted deliberately: it fails on ANY skip (including our own
-        # editable package), which contradicts --skip-editable. pip-audit still
-        # exits non-zero if a real dependency has a known vulnerability.
-        run: pip-audit --skip-editable
+      - name: SCA — pip-audit project dependencies
+        # Audit the project's declared dependencies, resolved from pyproject.toml in
+        # an isolated environment. This deliberately does NOT audit the whole CI
+        # environment: the runner's ambient toolchain (pip, setuptools) and
+        # pip-audit's own deps (msgpack) carry advisories that drift independently
+        # of this project's supply chain and would make the gate flaky.
+        run: pip-audit .
