@@ -6,10 +6,13 @@ __pycache__/
 *.egg-info/
 .venv/
 .env
+.claude/
 dist/
 build/
 ARCHITECTURE.md
 CONTEXT.md
 DESIGN_DECISIONS.md
 LINKEDIN_POSTS.md
+REVIEW.md
+IMPLEMENTATION_PLAN.md
 eval/real-mcps/EVAL_PLAN.md

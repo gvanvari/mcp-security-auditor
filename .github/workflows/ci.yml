@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: |
+          pip install -e ".[dev]"
+
+      - name: Run tests
+        run: pytest tests/ -q --tb=short
+
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install security tools
+        run: pip install bandit pip-audit
+
+      - name: SAST — Bandit source scan
+        run: bandit -r mcp_auditor/ -ll -q
+
+      - name: SCA — pip-audit project dependencies
+        # Audit the project's declared dependencies, resolved from pyproject.toml in
+        # an isolated environment. This deliberately does NOT audit the whole CI
+        # environment: the runner's ambient toolchain (pip, setuptools) and
+        # pip-audit's own deps (msgpack) carry advisories that drift independently
+        # of this project's supply chain and would make the gate flaky.
+        run: pip-audit .

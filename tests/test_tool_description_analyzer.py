@@ -16,7 +16,7 @@ from pathlib import Path
 from mcp_auditor.extractors.tool_description_analyzer import ToolDescriptionAnalyzer
 from mcp_auditor.extractors.threat_vector import ThreatVectorType, Severity, Confidence
 
-CORPUS = Path(__file__).parent / "corpus"
+CORPUS = Path(__file__).parent.parent / "eval" / "corpus"
 analyzer = ToolDescriptionAnalyzer()
 
 
