@@ -101,25 +101,35 @@ def _scan_docstring(
     doc_lower = docstring.lower()
 
     # --- Tool poisoning: credential paths ---
+    # Collect all matching labels first so we emit at most one MCP-TPA-001
+    # per docstring (multiple matches → single finding with all labels listed).
+    matched_labels: list[str] = []
+    matched_evidence: list[str] = []
     for pattern, label in CREDENTIAL_PATH_PATTERNS:
         match = re.search(pattern, docstring, re.IGNORECASE)
         if match:
-            findings.append(ThreatVector(
-                rule_id="MCP-TPA-001",
-                type=ThreatVectorType.TOOL_POISONING,
-                severity=Severity.CRITICAL,
-                confidence=Confidence.VERIFIED,
-                location=f"function:{tool_name}, docstring (line ~{func_lineno})",
-                evidence=match.group(0),
-                description=(
-                    f"Tool '{tool_name}' description references a credential file path "
-                    f"({label}). This is the direct-poisoning pattern: hidden instructions "
-                    f"in the docstring instruct the LLM to read sensitive files and "
-                    f"exfiltrate them via tool parameters."
-                ),
-                owasp_llm="LLM01",
-                data_flow="tool_description → LLM instruction → file_read → exfiltration",
-            ))
+            matched_labels.append(label)
+            matched_evidence.append(match.group(0))
+
+    if matched_labels:
+        labels_str = "; ".join(matched_labels)
+        evidence_str = ", ".join(dict.fromkeys(matched_evidence))  # deduplicate, preserve order
+        findings.append(ThreatVector(
+            rule_id="MCP-TPA-001",
+            type=ThreatVectorType.TOOL_POISONING,
+            severity=Severity.CRITICAL,
+            confidence=Confidence.VERIFIED,
+            location=f"function:{tool_name}, docstring (line ~{func_lineno})",
+            evidence=evidence_str,
+            description=(
+                f"Tool '{tool_name}' description references credential file path(s): "
+                f"{labels_str}. This is the direct-poisoning pattern: hidden instructions "
+                f"in the docstring instruct the LLM to read sensitive files and "
+                f"exfiltrate them via tool parameters."
+            ),
+            owasp_llm="LLM01",
+            data_flow="tool_description → LLM instruction → file_read → exfiltration",
+        ))
 
     # --- Tool poisoning: hidden instruction markers ---
     for pattern, label in HIDDEN_INSTRUCTION_PATTERNS:
