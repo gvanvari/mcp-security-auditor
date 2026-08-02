@@ -6,6 +6,7 @@ __pycache__/
 *.egg-info/
 .venv/
 .env
+.claude/
 dist/
 build/
 ARCHITECTURE.md
