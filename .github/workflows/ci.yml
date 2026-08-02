@@ -45,4 +45,9 @@ jobs:
         run: bandit -r mcp_auditor/ -ll -q
 
       - name: SCA — pip-audit dependency scan
-        run: pip-audit --strict
+        # --skip-editable: the project itself is installed via `pip install -e .`
+        # and has no PyPI release, so it can't be resolved; audit real deps only.
+        # --strict is omitted deliberately: it fails on ANY skip (including our own
+        # editable package), which contradicts --skip-editable. pip-audit still
+        # exits non-zero if a real dependency has a known vulnerability.
+        run: pip-audit --skip-editable
