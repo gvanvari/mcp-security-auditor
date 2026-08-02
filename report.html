@@ -62,16 +62,16 @@
   <p class="subtitle">File: <code>eval/corpus/direct-poisoning.py</code></p>
 
   <div class="summary">
-    <div class="stat"><div class="stat-num">5</div><div class="stat-label">Total</div></div>
-    <div class="stat critical"><div class="stat-num">4</div><div class="stat-label">Critical</div></div>
+    <div class="stat"><div class="stat-num">2</div><div class="stat-label">Total</div></div>
+    <div class="stat critical"><div class="stat-num">1</div><div class="stat-label">Critical</div></div>
     <div class="stat high"><div class="stat-num">1</div><div class="stat-label">High</div></div>
     <div class="stat medium"><div class="stat-num">0</div><div class="stat-label">Medium</div></div>
     <div class="stat low"><div class="stat-num">0</div><div class="stat-label">Low</div></div>
   </div>
 
   <div class="filters">
-    <button class="filter-btn active" onclick="filter('ALL')">All (5)</button>
-    <button class="filter-btn" onclick="filter('CRITICAL')" style="color:#dc2626;">🔴 Critical (4)</button>
+    <button class="filter-btn active" onclick="filter('ALL')">All (2)</button>
+    <button class="filter-btn" onclick="filter('CRITICAL')" style="color:#dc2626;">🔴 Critical (1)</button>
     <button class="filter-btn" onclick="filter('HIGH')" style="color:#ea580c;">🟠 High (1)</button>
     <button class="filter-btn" onclick="filter('MEDIUM')" style="color:#ca8a04;">🟡 Medium (0)</button>
     <button class="filter-btn" onclick="filter('LOW')" style="color:#16a34a;">🟢 Low (0)</button>
@@ -98,125 +98,11 @@
     </div>
     <div class="section">
       <strong>📝 Description</strong>
-      <p>Tool &#x27;add&#x27; description references a credential file path (SSH key directory (~/.ssh/)). This is the direct-poisoning pattern: hidden instructions in the docstring instruct the LLM to read sensitive files and exfiltrate them via tool parameters.</p>
+      <p>Tool &#x27;add&#x27; description references credential file path(s): SSH key directory (~/.ssh/); Cursor MCP config (~/.cursor/); SSH private key (id_rsa); MCP server config (mcp.json). This is the direct-poisoning pattern: hidden instructions in the docstring instruct the LLM to read sensitive files and exfiltrate them via tool parameters.</p>
     </div>
     <div class="section">
       <strong>🔍 Evidence</strong>
-      <pre><code>~/.ssh/</code></pre>
-    </div>
-    <div class="section">
-      <strong>🛠 Remediation</strong>
-      <p>Remove all file path references from tool docstrings. Tool descriptions should only describe the tool&#x27;s intended behavior — never reference file system paths, environment variables, or external resources. If the tool legitimately accesses files, document that in code comments, not in the LLM-visible docstring.</p>
-    </div>
-    
-    
-            <div class="section">
-              <strong>📚 References</strong>
-              <ul><li>OWASP LLM01: Prompt Injection</li><li>CWE-312: Cleartext Storage of Sensitive Information</li><li><a href="https://github.com/invariantlabs-ai/mcp-injection-experiments" target="_blank">https://github.com/invariantlabs-ai/mcp-injection-experiments</a></li><li><a href="https://owasp.org/www-project-top-10-for-large-language-model-applications/" target="_blank">https://owasp.org/www-project-top-10-for-large-language-model-applications/</a></li></ul>
-            </div>
-  </div>
-</div>
-
-<div class="card" data-severity="CRITICAL" style="border-left: 4px solid #dc2626; background: #fef2f2;">
-  <div class="card-header" onclick="toggle(this)">
-    <span class="sev-badge" style="background:#dc2626;">CRITICAL</span>
-    <span class="card-title">Finding 2: Credential file path in tool description</span>
-    <span class="card-meta">
-      <code>MCP-TPA-001</code>
-      <span class="badge owasp">OWASP LLM01</span>
-      <code class="loc">function:add, docstring (line ~10)</code>
-    </span>
-    <span class="toggle-icon">▼</span>
-  </div>
-  <div class="card-body">
-    <div class="meta-grid">
-      <div><strong>Type</strong><br><code>tool_poisoning</code></div>
-      <div><strong>Confidence</strong><br><code>VERIFIED</code></div>
-      <div><strong>Routing</strong><br><code>SELF_CONTAINED</code></div>
-    </div>
-    <div class="section">
-      <strong>📝 Description</strong>
-      <p>Tool &#x27;add&#x27; description references a credential file path (Cursor MCP config (~/.cursor/)). This is the direct-poisoning pattern: hidden instructions in the docstring instruct the LLM to read sensitive files and exfiltrate them via tool parameters.</p>
-    </div>
-    <div class="section">
-      <strong>🔍 Evidence</strong>
-      <pre><code>~/.cursor/</code></pre>
-    </div>
-    <div class="section">
-      <strong>🛠 Remediation</strong>
-      <p>Remove all file path references from tool docstrings. Tool descriptions should only describe the tool&#x27;s intended behavior — never reference file system paths, environment variables, or external resources. If the tool legitimately accesses files, document that in code comments, not in the LLM-visible docstring.</p>
-    </div>
-    
-    
-            <div class="section">
-              <strong>📚 References</strong>
-              <ul><li>OWASP LLM01: Prompt Injection</li><li>CWE-312: Cleartext Storage of Sensitive Information</li><li><a href="https://github.com/invariantlabs-ai/mcp-injection-experiments" target="_blank">https://github.com/invariantlabs-ai/mcp-injection-experiments</a></li><li><a href="https://owasp.org/www-project-top-10-for-large-language-model-applications/" target="_blank">https://owasp.org/www-project-top-10-for-large-language-model-applications/</a></li></ul>
-            </div>
-  </div>
-</div>
-
-<div class="card" data-severity="CRITICAL" style="border-left: 4px solid #dc2626; background: #fef2f2;">
-  <div class="card-header" onclick="toggle(this)">
-    <span class="sev-badge" style="background:#dc2626;">CRITICAL</span>
-    <span class="card-title">Finding 3: Credential file path in tool description</span>
-    <span class="card-meta">
-      <code>MCP-TPA-001</code>
-      <span class="badge owasp">OWASP LLM01</span>
-      <code class="loc">function:add, docstring (line ~10)</code>
-    </span>
-    <span class="toggle-icon">▼</span>
-  </div>
-  <div class="card-body">
-    <div class="meta-grid">
-      <div><strong>Type</strong><br><code>tool_poisoning</code></div>
-      <div><strong>Confidence</strong><br><code>VERIFIED</code></div>
-      <div><strong>Routing</strong><br><code>SELF_CONTAINED</code></div>
-    </div>
-    <div class="section">
-      <strong>📝 Description</strong>
-      <p>Tool &#x27;add&#x27; description references a credential file path (SSH private key (id_rsa)). This is the direct-poisoning pattern: hidden instructions in the docstring instruct the LLM to read sensitive files and exfiltrate them via tool parameters.</p>
-    </div>
-    <div class="section">
-      <strong>🔍 Evidence</strong>
-      <pre><code>id_rsa</code></pre>
-    </div>
-    <div class="section">
-      <strong>🛠 Remediation</strong>
-      <p>Remove all file path references from tool docstrings. Tool descriptions should only describe the tool&#x27;s intended behavior — never reference file system paths, environment variables, or external resources. If the tool legitimately accesses files, document that in code comments, not in the LLM-visible docstring.</p>
-    </div>
-    
-    
-            <div class="section">
-              <strong>📚 References</strong>
-              <ul><li>OWASP LLM01: Prompt Injection</li><li>CWE-312: Cleartext Storage of Sensitive Information</li><li><a href="https://github.com/invariantlabs-ai/mcp-injection-experiments" target="_blank">https://github.com/invariantlabs-ai/mcp-injection-experiments</a></li><li><a href="https://owasp.org/www-project-top-10-for-large-language-model-applications/" target="_blank">https://owasp.org/www-project-top-10-for-large-language-model-applications/</a></li></ul>
-            </div>
-  </div>
-</div>
-
-<div class="card" data-severity="CRITICAL" style="border-left: 4px solid #dc2626; background: #fef2f2;">
-  <div class="card-header" onclick="toggle(this)">
-    <span class="sev-badge" style="background:#dc2626;">CRITICAL</span>
-    <span class="card-title">Finding 4: Credential file path in tool description</span>
-    <span class="card-meta">
-      <code>MCP-TPA-001</code>
-      <span class="badge owasp">OWASP LLM01</span>
-      <code class="loc">function:add, docstring (line ~10)</code>
-    </span>
-    <span class="toggle-icon">▼</span>
-  </div>
-  <div class="card-body">
-    <div class="meta-grid">
-      <div><strong>Type</strong><br><code>tool_poisoning</code></div>
-      <div><strong>Confidence</strong><br><code>VERIFIED</code></div>
-      <div><strong>Routing</strong><br><code>SELF_CONTAINED</code></div>
-    </div>
-    <div class="section">
-      <strong>📝 Description</strong>
-      <p>Tool &#x27;add&#x27; description references a credential file path (MCP server config (mcp.json)). This is the direct-poisoning pattern: hidden instructions in the docstring instruct the LLM to read sensitive files and exfiltrate them via tool parameters.</p>
-    </div>
-    <div class="section">
-      <strong>🔍 Evidence</strong>
-      <pre><code>mcp.json</code></pre>
+      <pre><code>~/.ssh/, ~/.cursor/, id_rsa, mcp.json</code></pre>
     </div>
     <div class="section">
       <strong>🛠 Remediation</strong>
@@ -234,7 +120,7 @@
 <div class="card" data-severity="HIGH" style="border-left: 4px solid #ea580c; background: #fff7ed;">
   <div class="card-header" onclick="toggle(this)">
     <span class="sev-badge" style="background:#ea580c;">HIGH</span>
-    <span class="card-title">Finding 5: Hidden instruction markers in tool description</span>
+    <span class="card-title">Finding 2: Hidden instruction markers in tool description</span>
     <span class="card-meta">
       <code>MCP-TPA-002</code>
       <span class="badge owasp">OWASP LLM01</span>

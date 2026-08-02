@@ -6,11 +6,11 @@
 
 | Severity | Count |
 |----------|-------|
-| 🔴 CRITICAL | 4 |
+| 🔴 CRITICAL | 1 |
 | 🟠 HIGH | 1 |
 | 🟡 MEDIUM | 0 |
 | 🟢 LOW | 0 |
-| **Total** | **5** |
+| **Total** | **2** |
 
 ---
 
@@ -26,10 +26,10 @@
 
 **Evidence:**
 ```
-~/.ssh/
+~/.ssh/, ~/.cursor/, id_rsa, mcp.json
 ```
 
-**Description:** Tool 'add' description references a credential file path (SSH key directory (~/.ssh/)). This is the direct-poisoning pattern: hidden instructions in the docstring instruct the LLM to read sensitive files and exfiltrate them via tool parameters.
+**Description:** Tool 'add' description references credential file path(s): SSH key directory (~/.ssh/); Cursor MCP config (~/.cursor/); SSH private key (id_rsa); MCP server config (mcp.json). This is the direct-poisoning pattern: hidden instructions in the docstring instruct the LLM to read sensitive files and exfiltrate them via tool parameters.
 
 **OWASP LLM Top 10:** LLM01  
 
@@ -44,91 +44,7 @@ Remove all file path references from tool docstrings. Tool descriptions should o
 
 ---
 
-### Finding 2: Credential file path in tool description
-
-**Severity:** 🔴 CRITICAL  
-**Rule:** `MCP-TPA-001`  
-**Type:** `tool_poisoning`  
-**Confidence:** `VERIFIED`  
-**Location:** `function:add, docstring (line ~10)`  
-
-**Evidence:**
-```
-~/.cursor/
-```
-
-**Description:** Tool 'add' description references a credential file path (Cursor MCP config (~/.cursor/)). This is the direct-poisoning pattern: hidden instructions in the docstring instruct the LLM to read sensitive files and exfiltrate them via tool parameters.
-
-**OWASP LLM Top 10:** LLM01  
-
-**Remediation:**
-Remove all file path references from tool docstrings. Tool descriptions should only describe the tool's intended behavior — never reference file system paths, environment variables, or external resources. If the tool legitimately accesses files, document that in code comments, not in the LLM-visible docstring.
-
-**References:**
-- OWASP LLM01: Prompt Injection
-- CWE-312: Cleartext Storage of Sensitive Information
-- https://github.com/invariantlabs-ai/mcp-injection-experiments
-- https://owasp.org/www-project-top-10-for-large-language-model-applications/
-
----
-
-### Finding 3: Credential file path in tool description
-
-**Severity:** 🔴 CRITICAL  
-**Rule:** `MCP-TPA-001`  
-**Type:** `tool_poisoning`  
-**Confidence:** `VERIFIED`  
-**Location:** `function:add, docstring (line ~10)`  
-
-**Evidence:**
-```
-id_rsa
-```
-
-**Description:** Tool 'add' description references a credential file path (SSH private key (id_rsa)). This is the direct-poisoning pattern: hidden instructions in the docstring instruct the LLM to read sensitive files and exfiltrate them via tool parameters.
-
-**OWASP LLM Top 10:** LLM01  
-
-**Remediation:**
-Remove all file path references from tool docstrings. Tool descriptions should only describe the tool's intended behavior — never reference file system paths, environment variables, or external resources. If the tool legitimately accesses files, document that in code comments, not in the LLM-visible docstring.
-
-**References:**
-- OWASP LLM01: Prompt Injection
-- CWE-312: Cleartext Storage of Sensitive Information
-- https://github.com/invariantlabs-ai/mcp-injection-experiments
-- https://owasp.org/www-project-top-10-for-large-language-model-applications/
-
----
-
-### Finding 4: Credential file path in tool description
-
-**Severity:** 🔴 CRITICAL  
-**Rule:** `MCP-TPA-001`  
-**Type:** `tool_poisoning`  
-**Confidence:** `VERIFIED`  
-**Location:** `function:add, docstring (line ~10)`  
-
-**Evidence:**
-```
-mcp.json
-```
-
-**Description:** Tool 'add' description references a credential file path (MCP server config (mcp.json)). This is the direct-poisoning pattern: hidden instructions in the docstring instruct the LLM to read sensitive files and exfiltrate them via tool parameters.
-
-**OWASP LLM Top 10:** LLM01  
-
-**Remediation:**
-Remove all file path references from tool docstrings. Tool descriptions should only describe the tool's intended behavior — never reference file system paths, environment variables, or external resources. If the tool legitimately accesses files, document that in code comments, not in the LLM-visible docstring.
-
-**References:**
-- OWASP LLM01: Prompt Injection
-- CWE-312: Cleartext Storage of Sensitive Information
-- https://github.com/invariantlabs-ai/mcp-injection-experiments
-- https://owasp.org/www-project-top-10-for-large-language-model-applications/
-
----
-
-### Finding 5: Hidden instruction markers in tool description
+### Finding 2: Hidden instruction markers in tool description
 
 **Severity:** 🟠 HIGH  
 **Rule:** `MCP-TPA-002`  
