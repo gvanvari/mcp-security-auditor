@@ -62,6 +62,102 @@ def _is_bare_call(node: ast.Call, name: str) -> bool:
     return isinstance(node.func, ast.Name) and node.func.id == name
 
 
+def _has_shell_nonliteral(node: ast.Call) -> bool:
+    """
+    Return True if the Call has a shell= keyword that is NOT a literal False
+    and NOT a literal True (which is handled by _has_shell_true).
+
+    When shell= is a variable or attribute (e.g. shell=flag, shell=cfg.shell),
+    the value is unknown at static analysis time.  These cases are emitted at
+    reduced confidence instead of being silently dropped.
+    """
+    for kw in node.keywords:
+        if kw.arg == "shell":
+            if isinstance(kw.value, ast.Constant):
+                # Literal True/False — handled elsewhere, not "non-literal"
+                return False
+            # Anything else (Name, Attribute, BoolOp, …) is non-literal
+            return True
+    return False
+
+
+# ---------------------------------------------------------------------------
+# P1-2 — Per-file import resolution
+# ---------------------------------------------------------------------------
+
+class _ImportMap:
+    """
+    Per-file import resolution table built from the module's top-level imports.
+
+    Resolves two patterns:
+      import X as Y            → alias_map: {"Y": "X"}
+      from X import Y [as Z]   → from_map:  {"Z": ("X", "Y")}
+
+    Use ``matches(node, module, attr)`` to test whether a Call node resolves
+    to ``module.attr(...)`` under any of the above transformations.
+    """
+
+    def __init__(self, tree: ast.Module) -> None:
+        # local_alias → canonical_module  (e.g. "req" → "requests")
+        self._alias_map: dict[str, str] = {}
+        # local_name → (canonical_module, original_attr)  (e.g. "get" → ("requests", "get"))
+        self._from_map: dict[str, tuple[str, str]] = {}
+        self._build(tree)
+
+    def _build(self, tree: ast.Module) -> None:
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    local = alias.asname if alias.asname else alias.name
+                    self._alias_map[local] = alias.name
+            elif isinstance(node, ast.ImportFrom):
+                module = node.module or ""
+                for alias in node.names:
+                    local = alias.asname if alias.asname else alias.name
+                    self._from_map[local] = (module, alias.name)
+
+    def resolve_attr_module(self, local_name: str) -> str:
+        """
+        Return the canonical module name for a local identifier.
+        Falls back to the identifier itself when not in the alias map.
+        """
+        return self._alias_map.get(local_name, local_name)
+
+    def is_attr_call(self, node: ast.Call, canonical_module: str, attr: str) -> bool:
+        """
+        Return True if node is ``<local>.attr(...)`` where ``<local>`` resolves
+        to ``canonical_module`` via ``import canonical_module as <local>``.
+        """
+        if not isinstance(node.func, ast.Attribute):
+            return False
+        if not isinstance(node.func.value, ast.Name):
+            return False
+        resolved = self._alias_map.get(node.func.value.id, node.func.value.id)
+        return resolved == canonical_module and node.func.attr == attr
+
+    def is_from_import_call(self, node: ast.Call, canonical_module: str, attr: str) -> bool:
+        """
+        Return True if node is a bare ``attr(...)`` call that came from
+        ``from canonical_module import attr``.
+        """
+        if not isinstance(node.func, ast.Name):
+            return False
+        entry = self._from_map.get(node.func.id)
+        return entry is not None and entry[0] == canonical_module and entry[1] == attr
+
+    def matches(self, node: ast.Call, canonical_module: str, attr: str) -> bool:
+        """
+        Return True if node is any form of ``canonical_module.attr(...)`` call:
+          - ``canonical_module.attr(...)``          (direct)
+          - ``alias.attr(...)`` after aliased import (is_attr_call)
+          - ``attr(...)`` after from-import          (is_from_import_call)
+        """
+        return (
+            self.is_attr_call(node, canonical_module, attr)
+            or self.is_from_import_call(node, canonical_module, attr)
+        )
+
+
 # ---------------------------------------------------------------------------
 # P1-1 — Intra-procedural taint analysis
 # ---------------------------------------------------------------------------
@@ -188,6 +284,46 @@ def _adjust_for_reachability(
     return new_sev, new_conf
 
 
+def _collect_http_client_locals(
+    tree: ast.Module,
+    import_map: "_ImportMap | None" = None,
+) -> frozenset[str]:
+    """
+    Return the set of local names assigned from HTTP client constructors.
+
+    Recognises:
+      session = requests.Session()
+      client  = httpx.Client()
+      client  = httpx.AsyncClient()
+
+    and their aliased / from-import variants when import_map is provided.
+    Method calls on these names are treated as HTTP sinks by _detect_http_calls.
+    """
+    CLIENT_CONSTRUCTORS: list[tuple[str, str]] = [
+        ("requests", "Session"),
+        ("httpx", "Client"),
+        ("httpx", "AsyncClient"),
+    ]
+    result: set[str] = set()
+
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Assign):
+            continue
+        if not isinstance(node.value, ast.Call):
+            continue
+        call = node.value
+        for mod, cls in CLIENT_CONSTRUCTORS:
+            matched = _is_attr_call(call, mod, cls)
+            if not matched and import_map is not None:
+                matched = import_map.matches(call, mod, cls)
+            if matched:
+                for target in node.targets:
+                    if isinstance(target, ast.Name):
+                        result.add(target.id)
+
+    return frozenset(result)
+
+
 # ---------------------------------------------------------------------------
 # Detectors — one per attack class, each returns list[ThreatVector]
 # All detectors now accept an optional _TaintContext for reachability.
@@ -197,12 +333,16 @@ def _detect_cmd_injection(
     tree: ast.Module,
     file_path: str,
     taint: "_TaintContext | None" = None,
+    import_map: "_ImportMap | None" = None,
 ) -> list[ThreatVector]:
     """
     Detect shell command execution patterns:
       - os.system / os.popen: always invoke /bin/sh, no flag needed
       - subprocess.run/call/check_call/check_output with shell=True: shell injection
       - subprocess.Popen: flag regardless — attacker-controlled argv is still dangerous
+      - subprocess.* with non-literal shell= argument: flagged at EXPERIMENTAL confidence
+
+    Aliased imports and from-imports are resolved via import_map when provided.
     """
     findings: list[ThreatVector] = []
 
@@ -213,71 +353,97 @@ def _detect_cmd_injection(
         if not isinstance(node, ast.Call):
             continue
 
-        # os.system / os.popen
+        # os.system / os.popen — direct, aliased, or from-import
         for fn in OS_SHELL_CALLS:
-            if _is_attr_call(node, "os", fn):
-                # Classify the first positional argument
-                arg_node = node.args[0] if node.args else None
-                reach = taint.classify(arg_node) if (taint and arg_node) else "unknown"
+            matched = _is_attr_call(node, "os", fn) or (
+                import_map is not None and import_map.matches(node, "os", fn)
+            )
+            if not matched:
+                continue
+            arg_node = node.args[0] if node.args else None
+            reach = taint.classify(arg_node) if (taint and arg_node) else "unknown"
+            sev, conf = _adjust_for_reachability(Severity.HIGH, Confidence.PROPOSED, reach)
+            findings.append(ThreatVector(
+                rule_id="MCP-CMI-001",
+                type=ThreatVectorType.CMD_INJECTION,
+                severity=sev,
+                confidence=conf,
+                location=f"{file_path}:{node.lineno}",
+                evidence=f"os.{fn}(...)",
+                description=(
+                    f"os.{fn}() always passes its argument to /bin/sh. "
+                    f"If attacker-controlled input reaches this call, arbitrary "
+                    f"shell commands execute on the host running the MCP server."
+                ),
+                owasp_llm="LLM08",
+                reachability=reach,
+            ))
+
+        # subprocess.* — direct, aliased, or from-import
+        for fn in SUBPROCESS_CALLS:
+            matched = _is_attr_call(node, "subprocess", fn) or (
+                import_map is not None and import_map.matches(node, "subprocess", fn)
+            )
+            if not matched:
+                continue
+
+            arg_node = node.args[0] if node.args else None
+            reach = taint.classify(arg_node) if (taint and arg_node) else "unknown"
+
+            if _has_shell_true(node):
                 sev, conf = _adjust_for_reachability(Severity.HIGH, Confidence.PROPOSED, reach)
                 findings.append(ThreatVector(
-                    rule_id="MCP-CMI-001",
+                    rule_id="MCP-CMI-002",
                     type=ThreatVectorType.CMD_INJECTION,
                     severity=sev,
                     confidence=conf,
                     location=f"{file_path}:{node.lineno}",
-                    evidence=f"os.{fn}(...)",
+                    evidence=f"subprocess.{fn}(..., shell=True)",
                     description=(
-                        f"os.{fn}() always passes its argument to /bin/sh. "
-                        f"If attacker-controlled input reaches this call, arbitrary "
-                        f"shell commands execute on the host running the MCP server."
+                        f"subprocess.{fn}() called with shell=True passes the command "
+                        f"string to /bin/sh. Shell metacharacters (;, |, &&, $()) become "
+                        f"active if any part of the command is attacker-controlled."
                     ),
                     owasp_llm="LLM08",
                     reachability=reach,
                 ))
-
-        # subprocess.*
-        for fn in SUBPROCESS_CALLS:
-            if _is_attr_call(node, "subprocess", fn):
-                # First arg is the command — classify it
-                arg_node = node.args[0] if node.args else None
-                reach = taint.classify(arg_node) if (taint and arg_node) else "unknown"
-
-                if _has_shell_true(node):
-                    sev, conf = _adjust_for_reachability(Severity.HIGH, Confidence.PROPOSED, reach)
-                    findings.append(ThreatVector(
-                        rule_id="MCP-CMI-002",
-                        type=ThreatVectorType.CMD_INJECTION,
-                        severity=sev,
-                        confidence=conf,
-                        location=f"{file_path}:{node.lineno}",
-                        evidence=f"subprocess.{fn}(..., shell=True)",
-                        description=(
-                            f"subprocess.{fn}() called with shell=True passes the command "
-                            f"string to /bin/sh. Shell metacharacters (;, |, &&, $()) become "
-                            f"active if any part of the command is attacker-controlled."
-                        ),
-                        owasp_llm="LLM08",
-                        reachability=reach,
-                    ))
-                elif fn == "Popen":
-                    sev, conf = _adjust_for_reachability(Severity.MEDIUM, Confidence.EXPERIMENTAL, reach)
-                    findings.append(ThreatVector(
-                        rule_id="MCP-CMI-002",
-                        type=ThreatVectorType.CMD_INJECTION,
-                        severity=sev,
-                        confidence=conf,
-                        location=f"{file_path}:{node.lineno}",
-                        evidence="subprocess.Popen(...)",
-                        description=(
-                            "subprocess.Popen() without shell=True passes args directly to "
-                            "execve(). This avoids shell metacharacter injection but "
-                            "attacker-controlled values in the argument list can still "
-                            "influence the spawned process. Verify all arguments are validated."
-                        ),
-                        owasp_llm="LLM08",
-                        reachability=reach,
-                    ))
+            elif _has_shell_nonliteral(node):
+                # shell= is present but not a literal — value unknown at static analysis time.
+                # Emit at reduced confidence rather than silently dropping.
+                sev, conf = _adjust_for_reachability(Severity.MEDIUM, Confidence.EXPERIMENTAL, reach)
+                findings.append(ThreatVector(
+                    rule_id="MCP-CMI-002",
+                    type=ThreatVectorType.CMD_INJECTION,
+                    severity=sev,
+                    confidence=conf,
+                    location=f"{file_path}:{node.lineno}",
+                    evidence=f"subprocess.{fn}(..., shell=<variable>)",
+                    description=(
+                        f"subprocess.{fn}() is called with a non-literal shell= argument. "
+                        f"If the argument resolves to True at runtime, shell metacharacter "
+                        f"injection is possible. Review the value of the shell= argument."
+                    ),
+                    owasp_llm="LLM08",
+                    reachability=reach,
+                ))
+            elif fn == "Popen":
+                sev, conf = _adjust_for_reachability(Severity.MEDIUM, Confidence.EXPERIMENTAL, reach)
+                findings.append(ThreatVector(
+                    rule_id="MCP-CMI-002",
+                    type=ThreatVectorType.CMD_INJECTION,
+                    severity=sev,
+                    confidence=conf,
+                    location=f"{file_path}:{node.lineno}",
+                    evidence="subprocess.Popen(...)",
+                    description=(
+                        "subprocess.Popen() without shell=True passes args directly to "
+                        "execve(). This avoids shell metacharacter injection but "
+                        "attacker-controlled values in the argument list can still "
+                        "influence the spawned process. Verify all arguments are validated."
+                    ),
+                    owasp_llm="LLM08",
+                    reachability=reach,
+                ))
 
     return findings
 
@@ -327,11 +493,14 @@ def _detect_env_access(
     tree: ast.Module,
     file_path: str,
     taint: "_TaintContext | None" = None,
+    import_map: "_ImportMap | None" = None,
 ) -> list[ThreatVector]:
     """
     Detect environment variable access patterns:
       - os.getenv(key)          — Call node
       - os.environ[key]         — Subscript node
+
+    Aliased imports and from-imports are resolved via import_map when provided.
 
     Reachability here applies to the *key* argument, not the value returned.
     A constant key (os.getenv("PORT")) is informational; a tainted key
@@ -340,54 +509,66 @@ def _detect_env_access(
     findings: list[ThreatVector] = []
 
     for node in ast.walk(tree):
-        # os.getenv(...)
-        if isinstance(node, ast.Call) and _is_attr_call(node, "os", "getenv"):
-            arg_node = node.args[0] if node.args else None
-            reach = taint.classify(arg_node) if (taint and arg_node) else "unknown"
-            sev, conf = _adjust_for_reachability(Severity.MEDIUM, Confidence.PROPOSED, reach)
-            findings.append(ThreatVector(
-                rule_id="MCP-SEC-001",
-                type=ThreatVectorType.SECRET_EXPOSURE,
-                severity=sev,
-                confidence=conf,
-                location=f"{file_path}:{node.lineno}",
-                evidence="os.getenv(...)",
-                description=(
-                    "os.getenv() reads a value from the process environment and returns it. "
-                    "If the key name is attacker-controlled, any secret stored as an env var "
-                    "(API keys, tokens, credentials) can be exfiltrated via tool output."
-                ),
-                owasp_llm="LLM06",
-                reachability=reach,
-            ))
+        # os.getenv(...) — direct, aliased, or from-import
+        if isinstance(node, ast.Call):
+            matched = _is_attr_call(node, "os", "getenv") or (
+                import_map is not None and import_map.matches(node, "os", "getenv")
+            )
+            if matched:
+                arg_node = node.args[0] if node.args else None
+                reach = taint.classify(arg_node) if (taint and arg_node) else "unknown"
+                sev, conf = _adjust_for_reachability(Severity.MEDIUM, Confidence.PROPOSED, reach)
+                findings.append(ThreatVector(
+                    rule_id="MCP-SEC-001",
+                    type=ThreatVectorType.SECRET_EXPOSURE,
+                    severity=sev,
+                    confidence=conf,
+                    location=f"{file_path}:{node.lineno}",
+                    evidence="os.getenv(...)",
+                    description=(
+                        "os.getenv() reads a value from the process environment and returns it. "
+                        "If the key name is attacker-controlled, any secret stored as an env var "
+                        "(API keys, tokens, credentials) can be exfiltrated via tool output."
+                    ),
+                    owasp_llm="LLM06",
+                    reachability=reach,
+                ))
 
-        # os.environ[key]
-        if (
-            isinstance(node, ast.Subscript)
-            and isinstance(node.value, ast.Attribute)
-            and isinstance(node.value.value, ast.Name)
-            and node.value.value.id == "os"
-            and node.value.attr == "environ"
-        ):
-            key_node = node.slice if isinstance(node.slice, ast.expr) else None
-            reach = taint.classify(key_node) if (taint and key_node) else "unknown"
-            sev, conf = _adjust_for_reachability(Severity.MEDIUM, Confidence.PROPOSED, reach)
-            findings.append(ThreatVector(
-                rule_id="MCP-SEC-001",
-                type=ThreatVectorType.SECRET_EXPOSURE,
-                severity=sev,
-                confidence=conf,
-                location=f"{file_path}:{node.lineno}",
-                evidence="os.environ[...]",
-                description=(
-                    "os.environ subscript reads a value from the process environment. "
-                    "If the key name is attacker-controlled, any secret stored as an env var "
-                    "(API keys, tokens, credentials) can be exfiltrated via tool output. "
-                    "Unlike os.getenv(), this raises KeyError on missing keys."
-                ),
-                owasp_llm="LLM06",
-                reachability=reach,
-            ))
+        # os.environ[key] — also handles aliased os modules
+        if isinstance(node, ast.Subscript):
+            val = node.value
+            is_environ = (
+                isinstance(val, ast.Attribute)
+                and isinstance(val.value, ast.Name)
+                and val.attr == "environ"
+                and (
+                    val.value.id == "os"
+                    or (
+                        import_map is not None
+                        and import_map.resolve_attr_module(val.value.id) == "os"
+                    )
+                )
+            )
+            if is_environ:
+                key_node = node.slice if isinstance(node.slice, ast.expr) else None
+                reach = taint.classify(key_node) if (taint and key_node) else "unknown"
+                sev, conf = _adjust_for_reachability(Severity.MEDIUM, Confidence.PROPOSED, reach)
+                findings.append(ThreatVector(
+                    rule_id="MCP-SEC-001",
+                    type=ThreatVectorType.SECRET_EXPOSURE,
+                    severity=sev,
+                    confidence=conf,
+                    location=f"{file_path}:{node.lineno}",
+                    evidence="os.environ[...]",
+                    description=(
+                        "os.environ subscript reads a value from the process environment. "
+                        "If the key name is attacker-controlled, any secret stored as an env var "
+                        "(API keys, tokens, credentials) can be exfiltrated via tool output. "
+                        "Unlike os.getenv(), this raises KeyError on missing keys."
+                    ),
+                    owasp_llm="LLM06",
+                    reachability=reach,
+                ))
 
     return findings
 
@@ -396,9 +577,17 @@ def _detect_http_calls(
     tree: ast.Module,
     file_path: str,
     taint: "_TaintContext | None" = None,
+    import_map: "_ImportMap | None" = None,
+    http_client_locals: "frozenset[str] | None" = None,
 ) -> list[ThreatVector]:
     """
     Detect outbound HTTP calls via the requests or httpx libraries.
+
+    Three patterns are detected:
+      1. Direct module method calls: requests.get(url), httpx.post(url)
+      2. Aliased / from-import calls: req.get(url), get(url) after from-import
+      3. Session/client instance calls: session.get(url) after requests.Session()
+
     These are SSRF candidates: if the URL is attacker-controlled the tool
     can probe internal services, cloud metadata endpoints (169.254.169.254),
     or exfiltrate data to external hosts.
@@ -412,34 +601,74 @@ def _detect_http_calls(
         if not isinstance(node, ast.Call):
             continue
 
+        # Pattern 1 + 2: module.method(...) — direct, aliased, or from-import
         for module in HTTP_MODULES:
             for method in HTTP_METHODS:
-                if _is_attr_call(node, module, method):
-                    # First positional arg is the URL
-                    arg_node = node.args[0] if node.args else None
-                    reach = taint.classify(arg_node) if (taint and arg_node) else "unknown"
-                    sev, conf = _adjust_for_reachability(Severity.HIGH, Confidence.PROPOSED, reach)
-                    findings.append(ThreatVector(
-                        rule_id="MCP-SSRF-001",
-                        type=ThreatVectorType.SSRF,
-                        severity=sev,
-                        confidence=conf,
-                        location=f"{file_path}:{node.lineno}",
-                        evidence=f"{module}.{method}(...)",
-                        description=(
-                            f"{module}.{method}() makes an outbound HTTP call. If the URL is "
-                            f"attacker-controlled this enables SSRF: the attacker can probe "
-                            f"internal services, reach cloud metadata endpoints "
-                            f"(169.254.169.254), or exfiltrate data to an external host."
-                        ),
-                        owasp_llm="LLM02",
-                        reachability=reach,
-                    ))
+                matched = _is_attr_call(node, module, method) or (
+                    import_map is not None and import_map.matches(node, module, method)
+                )
+                if not matched:
+                    continue
+                arg_node = node.args[0] if node.args else None
+                reach = taint.classify(arg_node) if (taint and arg_node) else "unknown"
+                sev, conf = _adjust_for_reachability(Severity.HIGH, Confidence.PROPOSED, reach)
+                findings.append(ThreatVector(
+                    rule_id="MCP-SSRF-001",
+                    type=ThreatVectorType.SSRF,
+                    severity=sev,
+                    confidence=conf,
+                    location=f"{file_path}:{node.lineno}",
+                    evidence=f"{module}.{method}(...)",
+                    description=(
+                        f"{module}.{method}() makes an outbound HTTP call. If the URL is "
+                        f"attacker-controlled this enables SSRF: the attacker can probe "
+                        f"internal services, reach cloud metadata endpoints "
+                        f"(169.254.169.254), or exfiltrate data to an external host."
+                    ),
+                    owasp_llm="LLM02",
+                    reachability=reach,
+                ))
+
+        # Pattern 3: session/client instance method calls
+        # e.g. session = requests.Session(); session.get(url)
+        if (
+            http_client_locals
+            and isinstance(node.func, ast.Attribute)
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id in http_client_locals
+            and node.func.attr in HTTP_METHODS
+        ):
+            instance_name = node.func.value.id
+            method = node.func.attr
+            arg_node = node.args[0] if node.args else None
+            reach = taint.classify(arg_node) if (taint and arg_node) else "unknown"
+            sev, conf = _adjust_for_reachability(Severity.HIGH, Confidence.PROPOSED, reach)
+            findings.append(ThreatVector(
+                rule_id="MCP-SSRF-001",
+                type=ThreatVectorType.SSRF,
+                severity=sev,
+                confidence=conf,
+                location=f"{file_path}:{node.lineno}",
+                evidence=f"{instance_name}.{method}(...)",
+                description=(
+                    f"{instance_name}.{method}() is a method call on an HTTP client instance "
+                    f"(requests.Session / httpx.Client). If the URL is attacker-controlled "
+                    f"this enables SSRF: the attacker can probe internal services, reach "
+                    f"cloud metadata endpoints (169.254.169.254), or exfiltrate data to an "
+                    f"external host."
+                ),
+                owasp_llm="LLM02",
+                reachability=reach,
+            ))
 
     return findings
 
 
-def _detect_url_param_forwarding(tree: ast.Module, file_path: str) -> list[ThreatVector]:
+def _detect_url_param_forwarding(
+    tree: ast.Module,
+    file_path: str,
+    import_map: "_ImportMap | None" = None,
+) -> list[ThreatVector]:
     """
     Detect MCP tool parameters with URL-like names forwarded directly into
     third-party library method calls without validation.
@@ -476,11 +705,18 @@ def _detect_url_param_forwarding(tree: ast.Module, file_path: str) -> list[Threa
                 continue
             if not isinstance(child.func, ast.Attribute):
                 continue
-            if (
-                isinstance(child.func.value, ast.Name)
-                and child.func.value.id in KNOWN_HTTP_MODULES
-            ):
-                continue
+
+            # Skip calls that are direct HTTP library calls — already handled
+            # by _detect_http_calls. Resolve aliases so `req.get` is also skipped.
+            if isinstance(child.func.value, ast.Name):
+                callee_local = child.func.value.id
+                resolved = (
+                    import_map.resolve_attr_module(callee_local)
+                    if import_map is not None
+                    else callee_local
+                )
+                if resolved in KNOWN_HTTP_MODULES:
+                    continue
 
             for arg in child.args:
                 if isinstance(arg, ast.Name) and arg.id in url_params:
@@ -575,6 +811,9 @@ class ASTExtractor:
 
         findings: list[ThreatVector] = []
 
+        # Build the per-file import map once — used by all detectors.
+        import_map = _ImportMap(tree)
+
         # --- Per-function pass: taint-aware for @mcp.tool() functions ---
         # Track lines already covered so we don't double-emit from the
         # file-level pass below.
@@ -589,13 +828,16 @@ class ASTExtractor:
             # Build a taint context from this function's parameters
             taint = _TaintContext(node)
 
-            # Run sinks-in-body detectors scoped to this function's subtree
+            # Collect HTTP client locals scoped to this function
             func_module = ast.Module(body=[node], type_ignores=[])
+            http_client_locals = _collect_http_client_locals(func_module, import_map)
+
+            # Run sinks-in-body detectors scoped to this function's subtree
             func_findings: list[ThreatVector] = []
-            func_findings.extend(_detect_cmd_injection(func_module, file_path, taint))  # type: ignore[arg-type]
-            func_findings.extend(_detect_eval_exec(func_module, file_path, taint))      # type: ignore[arg-type]
-            func_findings.extend(_detect_env_access(func_module, file_path, taint))     # type: ignore[arg-type]
-            func_findings.extend(_detect_http_calls(func_module, file_path, taint))     # type: ignore[arg-type]
+            func_findings.extend(_detect_cmd_injection(func_module, file_path, taint, import_map))  # type: ignore[arg-type]
+            func_findings.extend(_detect_eval_exec(func_module, file_path, taint))                   # type: ignore[arg-type]
+            func_findings.extend(_detect_env_access(func_module, file_path, taint, import_map))      # type: ignore[arg-type]
+            func_findings.extend(_detect_http_calls(func_module, file_path, taint, import_map, http_client_locals))  # type: ignore[arg-type]
 
             for f in func_findings:
                 findings.append(f)
@@ -607,11 +849,12 @@ class ASTExtractor:
 
         # --- File-level pass: no taint context, skip already-covered lines ---
         # Catches dangerous calls outside @mcp.tool() scope.
+        http_client_locals_file = _collect_http_client_locals(tree, import_map)
         all_findings: list[ThreatVector] = []
-        all_findings.extend(_detect_cmd_injection(tree, file_path))  # type: ignore[arg-type]
-        all_findings.extend(_detect_eval_exec(tree, file_path))      # type: ignore[arg-type]
-        all_findings.extend(_detect_env_access(tree, file_path))     # type: ignore[arg-type]
-        all_findings.extend(_detect_http_calls(tree, file_path))     # type: ignore[arg-type]
+        all_findings.extend(_detect_cmd_injection(tree, file_path, None, import_map))  # type: ignore[arg-type]
+        all_findings.extend(_detect_eval_exec(tree, file_path))                         # type: ignore[arg-type]
+        all_findings.extend(_detect_env_access(tree, file_path, None, import_map))      # type: ignore[arg-type]
+        all_findings.extend(_detect_http_calls(tree, file_path, None, import_map, http_client_locals_file))  # type: ignore[arg-type]
 
         for f in all_findings:
             try:
@@ -620,9 +863,18 @@ class ASTExtractor:
                 lineno = -1
             if lineno not in covered_lines:
                 findings.append(f)
+                covered_lines.add(lineno)
 
-        # _detect_url_param_forwarding is always reachable by construction
-        findings.extend(_detect_url_param_forwarding(tree, file_path))
+        # _detect_url_param_forwarding is always reachable by construction;
+        # de-dup against covered_lines so aliased http calls don't produce duplicates.
+        for f in _detect_url_param_forwarding(tree, file_path, import_map):
+            try:
+                lineno = int(f.location.rsplit(":", 1)[-1])
+            except ValueError:
+                lineno = -1
+            if lineno not in covered_lines:
+                findings.append(f)
+                covered_lines.add(lineno)
 
         return ScanResult(
             file_path=file_path,
