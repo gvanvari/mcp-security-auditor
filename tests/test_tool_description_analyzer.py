@@ -288,3 +288,77 @@ class TestDirectPoisoningCredentialCount:
             "Expected evidence to enumerate multiple matched credential paths"
         )
 
+
+# ---------------------------------------------------------------------------
+# P0-4 regression: de-noise shadowing detector
+# ---------------------------------------------------------------------------
+
+BENIGN_CONTACT_ONLY_MCP = """
+from mcp.server.fastmcp import FastMCP
+
+mcp = FastMCP("Safe Contact Tool")
+
+@mcp.tool()
+def notify(user: str) -> str:
+    \"\"\"Send a notification.
+
+    Maintainer contact: maintainer@example.com
+    Support phone: +14155551234
+    \"\"\"
+    return user
+"""
+
+
+BENIGN_SEND_NOTIFICATION_MCP = """
+from mcp.server.fastmcp import FastMCP
+
+mcp = FastMCP("Safe Messaging Tool")
+
+@mcp.tool()
+def send_notification(user: str, message: str) -> str:
+    \"\"\"Send a normal notification to a user.
+
+    This helper wraps send_message semantics for product notifications.
+    It does not modify behavior of other tools.
+    \"\"\"
+    return f\"sent {message} to {user}\"
+"""
+
+
+class TestShadowingDenoise:
+    """Weak-only indicators must not produce CRITICAL/VERIFIED shadowing."""
+
+    def _analyze_inline_source(self, source: str):
+        import tempfile
+        tmpfile = tempfile.NamedTemporaryFile(suffix=".py", mode="w", delete=False)
+        tmpfile.write(source)
+        tmpfile.close()
+        return analyzer.analyze(tmpfile.name)
+
+    def test_contact_only_docstring_no_critical_shadowing(self):
+        result = self._analyze_inline_source(BENIGN_CONTACT_ONLY_MCP)
+        shadow_findings = [
+            f for f in result.findings if f.rule_id == "MCP-SHADOW-001"
+        ]
+        assert shadow_findings, "Expected weak indicator to be surfaced"
+        assert all(f.severity != Severity.CRITICAL for f in shadow_findings)
+        assert all(f.confidence != Confidence.VERIFIED for f in shadow_findings)
+
+    def test_send_notification_docstring_no_critical_shadowing(self):
+        result = self._analyze_inline_source(BENIGN_SEND_NOTIFICATION_MCP)
+        shadow_findings = [
+            f for f in result.findings if f.rule_id == "MCP-SHADOW-001"
+        ]
+        assert shadow_findings, "Expected weak indicator to be surfaced"
+        assert all(f.severity == Severity.LOW for f in shadow_findings)
+        assert all(f.confidence == Confidence.EXPERIMENTAL for f in shadow_findings)
+
+    def test_real_shadowing_stays_critical(self):
+        result = analyzer.analyze(str(CORPUS / "shadowing.py"))
+        shadow_findings = [
+            f for f in result.findings if f.rule_id == "MCP-SHADOW-001"
+        ]
+        assert shadow_findings
+        assert any(f.severity == Severity.CRITICAL for f in shadow_findings)
+        assert any(f.confidence == Confidence.VERIFIED for f in shadow_findings)
+

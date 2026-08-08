@@ -62,13 +62,18 @@ HIDDEN_INSTRUCTION_PATTERNS: list[tuple[str, str]] = [
     (r"implementation detail", "Concealment framing ('implementation detail')"),
 ]
 
-# Cross-tool shadowing patterns seen in shadowing.py and whatsapp-takeover.py
-CROSS_TOOL_PATTERNS: list[tuple[str, str]] = [
+# Structural cross-tool shadowing signals — keep CRITICAL
+SHADOWING_STRUCTURAL_PATTERNS: list[tuple[str, str]] = [
     (r"mcp_tool_\w+", "Direct cross-tool reference (mcp_tool_*)"),
-    (r"send_email", "Email tool reference in description"),
-    (r"send_message", "Message tool reference in description"),
     (r"side effect on the also present", "Explicit cross-tool side-effect claim"),
     (r"when this tool is available", "Conditional cross-tool behavior override"),
+    (r"when\s+\([^)]*\)\s*\w+\s+is\s+invoked", "Conditional tool-invocation override phrasing"),
+]
+
+# Weak indicators — noisy on benign docs; emit only LOW/EXPERIMENTAL
+SHADOWING_WEAK_PATTERNS: list[tuple[str, str]] = [
+    (r"send_email", "Email tool reference in description"),
+    (r"send_message", "Message tool reference in description"),
     (r"\+\d{7,15}", "Phone number in tool description"),
     (r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}", "Email address in tool description"),
 ]
@@ -155,27 +160,58 @@ def _scan_docstring(
             ))
             break  # One hidden-instruction finding per docstring is enough
 
-    # --- Tool shadowing: cross-tool references ---
-    for pattern, label in CROSS_TOOL_PATTERNS:
+    # --- Tool shadowing: structural vs weak indicators ---
+    structural_matches: list[tuple[str, str]] = []
+    weak_matches: list[tuple[str, str]] = []
+
+    for pattern, label in SHADOWING_STRUCTURAL_PATTERNS:
         match = re.search(pattern, docstring, re.IGNORECASE)
         if match:
-            findings.append(ThreatVector(
-                rule_id="MCP-SHADOW-001",
-                type=ThreatVectorType.TOOL_SHADOWING,
-                severity=Severity.CRITICAL,
-                confidence=Confidence.VERIFIED,
-                location=f"function:{tool_name}, docstring (line ~{func_lineno})",
-                evidence=match.group(0),
-                description=(
-                    f"Tool '{tool_name}' description references another tool or "
-                    f"external contact: {label}. This is the shadowing pattern: "
-                    f"tool descriptions that modify the LLM's behavior toward other "
-                    f"trusted tools in the same session."
-                ),
-                owasp_llm="LLM07",
-                interacts_with=[match.group(0)],
-            ))
-            break  # One shadowing finding per docstring is enough
+            structural_matches.append((match.group(0), label))
+
+    for pattern, label in SHADOWING_WEAK_PATTERNS:
+        match = re.search(pattern, docstring, re.IGNORECASE)
+        if match:
+            weak_matches.append((match.group(0), label))
+
+    if structural_matches:
+        structural_labels = "; ".join(label for _, label in structural_matches)
+        evidence_items = [m for m, _ in structural_matches] + [m for m, _ in weak_matches]
+        evidence = ", ".join(dict.fromkeys(evidence_items))
+        findings.append(ThreatVector(
+            rule_id="MCP-SHADOW-001",
+            type=ThreatVectorType.TOOL_SHADOWING,
+            severity=Severity.CRITICAL,
+            confidence=Confidence.VERIFIED,
+            location=f"function:{tool_name}, docstring (line ~{func_lineno})",
+            evidence=evidence,
+            description=(
+                f"Tool '{tool_name}' description contains structural cross-tool "
+                f"override signal(s): {structural_labels}. This is the shadowing "
+                f"pattern: tool descriptions that modify the LLM's behavior toward "
+                f"other trusted tools in the same session."
+            ),
+            owasp_llm="LLM07",
+            interacts_with=[m for m, _ in structural_matches],
+        ))
+    elif weak_matches:
+        weak_labels = "; ".join(label for _, label in weak_matches)
+        evidence = ", ".join(dict.fromkeys(m for m, _ in weak_matches))
+        findings.append(ThreatVector(
+            rule_id="MCP-SHADOW-001",
+            type=ThreatVectorType.TOOL_SHADOWING,
+            severity=Severity.LOW,
+            confidence=Confidence.EXPERIMENTAL,
+            location=f"function:{tool_name}, docstring (line ~{func_lineno})",
+            evidence=evidence,
+            description=(
+                f"Tool '{tool_name}' description contains weak shadowing indicator(s): "
+                f"{weak_labels}. No structural cross-tool override phrase was detected; "
+                f"treat as informational context requiring human review."
+            ),
+            owasp_llm="LLM07",
+            interacts_with=[m for m, _ in weak_matches],
+        ))
 
     return findings
 
