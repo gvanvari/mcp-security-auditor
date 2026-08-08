@@ -86,6 +86,12 @@ class ThreatVector(BaseModel):
     # Where this finding came from
     source: Literal["native", "semgrep", "bandit"] = "native"
 
+    # Intra-procedural taint verdict (P1-1).
+    # reachable  — sink argument traces back to an @mcp.tool() parameter
+    # constant   — sink argument is a literal / config value with no param influence
+    # unknown    — complex expression; conservative, treated like reachable for exit code
+    reachability: Literal["reachable", "constant", "unknown"] = "unknown"
+
 
 class ScanResult(BaseModel):
     """Complete output of Phase 1 extraction for a single file."""
