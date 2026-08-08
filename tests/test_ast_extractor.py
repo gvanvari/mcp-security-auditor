@@ -431,3 +431,322 @@ class TestReachabilityFieldPresent:
                 assert f.reachability in ("reachable", "constant", "unknown"), (
                     f"{corpus_file.name}: unexpected reachability {f.reachability!r}"
                 )
+
+
+# ---------------------------------------------------------------------------
+# P1-2 — Import resolution / sink false-negative tests
+# ---------------------------------------------------------------------------
+
+class TestAliasedImports:
+    """Aliased module imports must be detected: import os as o; o.system(cmd)."""
+
+    def test_aliased_os_system_detected(self):
+        source = """
+from mcp.server.fastmcp import FastMCP
+import os as o
+mcp = FastMCP("T")
+
+@mcp.tool()
+def run(cmd: str) -> str:
+    o.system(cmd)
+    return ""
+"""
+        findings = _analyze_source(source)
+        cmi = [f for f in findings if f.rule_id == "MCP-CMI-001"]
+        assert cmi, "Aliased os.system not detected"
+        assert cmi[0].reachability == "reachable"
+
+    def test_aliased_subprocess_run_detected(self):
+        source = """
+from mcp.server.fastmcp import FastMCP
+import subprocess as sp
+mcp = FastMCP("T")
+
+@mcp.tool()
+def run(cmd: str) -> str:
+    sp.run(cmd, shell=True)
+    return ""
+"""
+        findings = _analyze_source(source)
+        cmi = [f for f in findings if f.rule_id == "MCP-CMI-002"]
+        assert cmi, "Aliased subprocess.run not detected"
+        assert cmi[0].reachability == "reachable"
+
+    def test_aliased_requests_get_detected(self):
+        source = """
+from mcp.server.fastmcp import FastMCP
+import requests as req
+mcp = FastMCP("T")
+
+@mcp.tool()
+def fetch(url: str) -> str:
+    return req.get(url).text
+"""
+        findings = _analyze_source(source)
+        ssrf = [f for f in findings if f.rule_id == "MCP-SSRF-001"]
+        assert ssrf, "Aliased requests.get not detected"
+        assert ssrf[0].reachability == "reachable"
+
+    def test_aliased_os_getenv_detected(self):
+        source = """
+from mcp.server.fastmcp import FastMCP
+import os as operating_system
+mcp = FastMCP("T")
+
+@mcp.tool()
+def read(name: str) -> str:
+    return operating_system.getenv(name)
+"""
+        findings = _analyze_source(source)
+        sec = [f for f in findings if f.rule_id == "MCP-SEC-001"]
+        assert sec, "Aliased os.getenv not detected"
+
+
+class TestFromImports:
+    """from-imports must be detected: from requests import get; get(url)."""
+
+    def test_from_requests_import_get(self):
+        source = """
+from mcp.server.fastmcp import FastMCP
+from requests import get
+mcp = FastMCP("T")
+
+@mcp.tool()
+def fetch(url: str) -> str:
+    return get(url).text
+"""
+        findings = _analyze_source(source)
+        ssrf = [f for f in findings if f.rule_id == "MCP-SSRF-001"]
+        assert ssrf, "from requests import get not detected"
+        assert ssrf[0].reachability == "reachable"
+
+    def test_from_os_import_system(self):
+        source = """
+from mcp.server.fastmcp import FastMCP
+from os import system
+mcp = FastMCP("T")
+
+@mcp.tool()
+def run(cmd: str) -> str:
+    system(cmd)
+    return ""
+"""
+        findings = _analyze_source(source)
+        cmi = [f for f in findings if f.rule_id == "MCP-CMI-001"]
+        assert cmi, "from os import system not detected"
+        assert cmi[0].reachability == "reachable"
+
+    def test_from_os_import_getenv(self):
+        source = """
+from mcp.server.fastmcp import FastMCP
+from os import getenv
+mcp = FastMCP("T")
+
+@mcp.tool()
+def read(key: str) -> str:
+    return getenv(key)
+"""
+        findings = _analyze_source(source)
+        sec = [f for f in findings if f.rule_id == "MCP-SEC-001"]
+        assert sec, "from os import getenv not detected"
+
+    def test_from_httpx_import_get(self):
+        source = """
+from mcp.server.fastmcp import FastMCP
+from httpx import get
+mcp = FastMCP("T")
+
+@mcp.tool()
+def fetch(url: str) -> str:
+    return get(url).text
+"""
+        findings = _analyze_source(source)
+        ssrf = [f for f in findings if f.rule_id == "MCP-SSRF-001"]
+        assert ssrf, "from httpx import get not detected"
+        assert ssrf[0].reachability == "reachable"
+
+
+class TestSessionClientDetection:
+    """HTTP session/client instances must be tracked as SSRF sinks."""
+
+    def test_requests_session_get_detected(self):
+        source = """
+from mcp.server.fastmcp import FastMCP
+import requests
+mcp = FastMCP("T")
+
+@mcp.tool()
+def fetch(url: str) -> str:
+    session = requests.Session()
+    return session.get(url).text
+"""
+        findings = _analyze_source(source)
+        ssrf = [f for f in findings if f.rule_id == "MCP-SSRF-001"]
+        assert ssrf, "requests.Session().get(url) not detected"
+        assert ssrf[0].reachability == "reachable"
+
+    def test_httpx_client_get_detected(self):
+        source = """
+from mcp.server.fastmcp import FastMCP
+import httpx
+mcp = FastMCP("T")
+
+@mcp.tool()
+def fetch(url: str) -> str:
+    client = httpx.Client()
+    return client.get(url).text
+"""
+        findings = _analyze_source(source)
+        ssrf = [f for f in findings if f.rule_id == "MCP-SSRF-001"]
+        assert ssrf, "httpx.Client().get(url) not detected"
+        assert ssrf[0].reachability == "reachable"
+
+    def test_httpx_async_client_post_detected(self):
+        source = """
+from mcp.server.fastmcp import FastMCP
+import httpx
+mcp = FastMCP("T")
+
+@mcp.tool()
+async def send(url: str, payload: str) -> str:
+    client = httpx.AsyncClient()
+    resp = await client.post(url, content=payload)
+    return resp.text
+"""
+        findings = _analyze_source(source)
+        ssrf = [f for f in findings if f.rule_id == "MCP-SSRF-001"]
+        assert ssrf, "httpx.AsyncClient().post(url) not detected"
+
+    def test_session_with_constant_url_is_constant(self):
+        """Session call with a hardcoded URL should be constant (not exit-1)."""
+        source = """
+from mcp.server.fastmcp import FastMCP
+import requests
+mcp = FastMCP("T")
+
+@mcp.tool()
+def health(name: str) -> str:
+    session = requests.Session()
+    session.get("https://hardcoded.example.com/health")
+    return name
+"""
+        findings = _analyze_source(source)
+        ssrf = [f for f in findings if f.rule_id == "MCP-SSRF-001"]
+        # A constant URL is still a finding but reachability=constant → no exit-1
+        assert not ssrf or all(f.reachability == "constant" for f in ssrf)
+
+    def test_no_duplicate_for_direct_call(self):
+        """requests.get(url) must produce exactly one SSRF finding."""
+        source = """
+from mcp.server.fastmcp import FastMCP
+import requests
+mcp = FastMCP("T")
+
+@mcp.tool()
+def fetch(url: str) -> str:
+    return requests.get(url).text
+"""
+        findings = _analyze_source(source)
+        ssrf = [f for f in findings if f.rule_id == "MCP-SSRF-001"]
+        assert len(ssrf) == 1, f"Expected 1 SSRF finding, got {len(ssrf)}"
+
+
+class TestNonLiteralShell:
+    """Non-literal shell= arguments must be flagged at EXPERIMENTAL, not dropped."""
+
+    def test_shell_variable_flagged(self):
+        source = """
+from mcp.server.fastmcp import FastMCP
+import subprocess
+mcp = FastMCP("T")
+
+UNSAFE = True
+
+@mcp.tool()
+def run(cmd: str) -> str:
+    subprocess.run(cmd, shell=UNSAFE)
+    return ""
+"""
+        findings = _analyze_source(source)
+        cmi = [f for f in findings if f.rule_id == "MCP-CMI-002"]
+        # The key guarantee: the finding is NOT silently dropped.
+        # Confidence may be EXPERIMENTAL or PROPOSED depending on how arg reachability
+        # interacts with the ambiguous shell= — either way it's below VERIFIED.
+        assert cmi, "Non-literal shell= not detected (silently dropped)"
+        from mcp_auditor.extractors.threat_vector import Confidence
+        assert all(f.confidence != Confidence.VERIFIED for f in cmi), (
+            "Non-literal shell= should not reach VERIFIED confidence"
+        )
+
+    def test_shell_literal_true_still_high(self):
+        """Literal shell=True must still produce HIGH confidence PROPOSED finding."""
+        source = """
+from mcp.server.fastmcp import FastMCP
+import subprocess
+mcp = FastMCP("T")
+
+@mcp.tool()
+def run(cmd: str) -> str:
+    subprocess.run(cmd, shell=True)
+    return ""
+"""
+        findings = _analyze_source(source)
+        cmi = [f for f in findings if f.rule_id == "MCP-CMI-002"]
+        assert cmi
+        # shell=True is the explicit dangerous case — should not be downgraded to EXPERIMENTAL
+        from mcp_auditor.extractors.threat_vector import Confidence
+        assert any(f.confidence != Confidence.EXPERIMENTAL for f in cmi)
+
+    def test_shell_literal_false_not_flagged(self):
+        """shell=False must not produce a non-literal shell= finding."""
+        source = """
+from mcp.server.fastmcp import FastMCP
+import subprocess
+mcp = FastMCP("T")
+
+@mcp.tool()
+def run(cmd: str) -> str:
+    subprocess.run(["ls", "-la"], shell=False)
+    return ""
+"""
+        findings = _analyze_source(source)
+        # subprocess.run with explicit shell=False: no CMI-002 for shell injection
+        shell_cmi = [
+            f for f in findings
+            if f.rule_id == "MCP-CMI-002" and "shell=" in f.evidence
+        ]
+        assert not shell_cmi, f"Unexpected shell= finding for shell=False: {shell_cmi}"
+
+
+class TestNoDuplicateFindings:
+    """Each call site must produce at most one finding per rule_id."""
+
+    def test_aliased_requests_no_duplicate(self):
+        """import requests as req; req.get(url) must produce exactly one SSRF."""
+        source = """
+from mcp.server.fastmcp import FastMCP
+import requests as req
+mcp = FastMCP("T")
+
+@mcp.tool()
+def fetch(url: str) -> str:
+    return req.get(url).text
+"""
+        findings = _analyze_source(source)
+        ssrf = [f for f in findings if f.rule_id == "MCP-SSRF-001"]
+        assert len(ssrf) == 1, f"Expected 1 SSRF finding, got {len(ssrf)}"
+
+    def test_from_import_requests_no_duplicate(self):
+        """from requests import get; get(url) must produce exactly one SSRF."""
+        source = """
+from mcp.server.fastmcp import FastMCP
+from requests import get
+mcp = FastMCP("T")
+
+@mcp.tool()
+def fetch(url: str) -> str:
+    return get(url).text
+"""
+        findings = _analyze_source(source)
+        ssrf = [f for f in findings if f.rule_id == "MCP-SSRF-001"]
+        assert len(ssrf) == 1, f"Expected 1 SSRF finding, got {len(ssrf)}"
