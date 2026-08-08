@@ -98,10 +98,10 @@ Key finding: `MCP-TPA-001 CRITICAL` — hidden instructions in the tool docstrin
 
 Tested against production MCPs with known CVEs:
 
-| Target                                            | Advisory                       | Expected rule  | Result                                                                             |
-| ------------------------------------------------- | ------------------------------ | -------------- | ---------------------------------------------------------------------------------- |
+| Target                                            | Advisory                       | Expected rule  | Result                                                                                                    |
+| ------------------------------------------------- | ------------------------------ | -------------- | --------------------------------------------------------------------------------------------------------- |
 | `modelcontextprotocol/servers` — `mcp-server-git` | CVE-2025-68144/68145           | `MCP-CMI-002`  | 0 findings on this clean revision — precision is tracked in corpus metrics, not a universal zero-FP claim |
-| `microsoft/markitdown` — `markitdown-mcp`         | Unpatched SSRF (VulnerableMCP) | `MCP-SSRF-001` | ✅ `MCP-SSRF-001 HIGH` — unvalidated URI parameter forwarded to outbound HTTP call |
+| `microsoft/markitdown` — `markitdown-mcp`         | Unpatched SSRF (VulnerableMCP) | `MCP-SSRF-001` | ✅ `MCP-SSRF-001 HIGH` — unvalidated URI parameter forwarded to outbound HTTP call                        |
 
 The markitdown finding required extending the AST extractor — the initial scan missed the SSRF because the HTTP call is mediated through a third-party library method rather than a direct `requests.get()`. See [DESIGN_DECISIONS.md](DESIGN_DECISIONS.md) → "Known Extractor Gaps".
 
