@@ -15,19 +15,97 @@ LLM provider can attempt to describe them rather than silently dropping.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import List
+from typing import List, Literal, Optional
 
 import yaml
+from pydantic import BaseModel, ValidationError
 
 from mcp_auditor.extractors.threat_vector import Confidence, EnrichedFinding, ScanResult, ThreatVector
 
 # Default kb/ directory — same directory as this file (mcp_auditor/kb/)
 _DEFAULT_KB_DIR = Path(__file__).parent
 
+# Valid routing tiers — kept in sync with EnrichedFinding.routing
+_VALID_ROUTING = {"SELF_CONTAINED", "NEEDS_CONTEXT", "NEEDS_ANALYSIS", "NEEDS_CHAIN"}
+
+# Valid severity values — kept in sync with Severity enum
+_VALID_SEVERITY = {"LOW", "MEDIUM", "HIGH", "CRITICAL"}
+
+
+# ---------------------------------------------------------------------------
+# KB rule schema (P1-4)
+# ---------------------------------------------------------------------------
+
+class KBRule(BaseModel):
+    """
+    Typed contract for a single KB YAML rule file.
+
+    Every field is required. A missing or invalid field raises a
+    ``KBValidationError`` that names the file and the field — not a
+    ``KeyError`` traceback.
+
+    Fields
+    ------
+    id          : Unique rule identifier, e.g. "MCP-SSRF-001".
+    title       : Short human-readable rule name.
+    description : Full explanation of the threat.
+    remediation : Actionable fix guidance.
+    severity    : Base severity: LOW | MEDIUM | HIGH | CRITICAL.
+    owasp_llm   : OWASP LLM Top-10 reference, e.g. "LLM02".
+    cwe         : CWE identifier, e.g. "CWE-918".  Used in SARIF output (P2-5).
+    references  : List of external reference strings / URLs.
+    llm_routing : Routing tier: SELF_CONTAINED | NEEDS_CONTEXT |
+                  NEEDS_ANALYSIS | NEEDS_CHAIN.
+    """
+
+    id: str
+    title: str
+    description: str
+    remediation: str
+    severity: Literal["LOW", "MEDIUM", "HIGH", "CRITICAL"]
+    owasp_llm: str
+    cwe: str
+    references: List[str] = []
+    llm_routing: Literal["SELF_CONTAINED", "NEEDS_CONTEXT", "NEEDS_ANALYSIS", "NEEDS_CHAIN"]
+
+
+class KBValidationError(ValueError):
+    """
+    Raised when a KB YAML file fails schema validation.
+
+    The message names the file and the specific field(s) that are invalid
+    so the developer can fix the rule without digging into a traceback.
+    """
+
+
+def _load_rule(yaml_file: Path) -> KBRule:
+    """
+    Parse and validate one KB YAML file.
+
+    Raises ``KBValidationError`` with the file name and Pydantic error
+    details when the rule does not conform to the schema.
+    """
+    raw = yaml.safe_load(yaml_file.read_text(encoding="utf-8"))
+    try:
+        return KBRule.model_validate(raw)
+    except ValidationError as exc:
+        # Build a concise, actionable error message
+        field_errors = "; ".join(
+            f"{'.'.join(str(loc) for loc in e['loc'])}: {e['msg']}"
+            for e in exc.errors()
+        )
+        raise KBValidationError(
+            f"KB rule file '{yaml_file.name}' failed validation — {field_errors}"
+        ) from exc
+
 
 class KBRouter:
     """
     Loads KB rules once at init, routes ThreatVectors to EnrichedFindings.
+
+    Each YAML file is validated against the ``KBRule`` schema on load.
+    A malformed rule raises ``KBValidationError`` immediately — the tool
+    fails fast rather than crashing later with a ``KeyError``.
 
     Usage:
         router = KBRouter()
@@ -35,10 +113,10 @@ class KBRouter:
     """
 
     def __init__(self, kb_dir: Path = _DEFAULT_KB_DIR) -> None:
-        self._rules: dict[str, dict] = {}
+        self._rules: dict[str, KBRule] = {}
         for yaml_file in sorted(kb_dir.glob("*.yaml")):
-            rule = yaml.safe_load(yaml_file.read_text(encoding="utf-8"))
-            self._rules[rule["id"]] = rule
+            rule = _load_rule(yaml_file)
+            self._rules[rule.id] = rule
 
     # ------------------------------------------------------------------
     # Public API
@@ -62,6 +140,10 @@ class KBRouter:
         """Return the list of rule IDs loaded from the KB."""
         return list(self._rules.keys())
 
+    def get_rule(self, rule_id: str) -> Optional[KBRule]:
+        """Return the KBRule for rule_id, or None if not found."""
+        return self._rules.get(rule_id)
+
     # ------------------------------------------------------------------
     # Internal
     # ------------------------------------------------------------------
@@ -84,19 +166,20 @@ class KBRouter:
                 effective_routing="NEEDS_CONTEXT",
             )
 
-        base_routing = rule["llm_routing"]
+        base_routing = rule.llm_routing
         effective_routing = self._compute_effective_routing(
             base_routing, vector.confidence, vector.reachability
         )
 
         return EnrichedFinding(
             vector=vector,
-            rule_title=rule["title"],
-            rule_description=rule["description"].strip(),
-            rule_remediation=rule["remediation"].strip(),
-            rule_references=rule.get("references", []),
+            rule_title=rule.title,
+            rule_description=rule.description.strip(),
+            rule_remediation=rule.remediation.strip(),
+            rule_references=rule.references,
             routing=base_routing,
             effective_routing=effective_routing,
+            rule_cwe=rule.cwe,
         )
 
     @staticmethod

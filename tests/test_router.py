@@ -14,9 +14,10 @@ Test classes:
 """
 
 import pytest
+import tempfile
 from pathlib import Path
 
-from mcp_auditor.kb.router import KBRouter
+from mcp_auditor.kb.router import KBRouter, KBRule, KBValidationError, _load_rule
 from mcp_auditor.extractors.threat_vector import (
     Confidence,
     EnrichedFinding,
@@ -376,3 +377,159 @@ class TestExitCodeCriteria:
         v = v.model_copy(update={"severity": Severity.MEDIUM})
         f = router.route_vector(v)
         assert not _exit1_eligible(f)
+
+
+# ---------------------------------------------------------------------------
+# TestKBRuleSchema — P1-4
+# ---------------------------------------------------------------------------
+
+_VALID_RULE_YAML = """\
+id: MCP-TEST-001
+title: "Test rule"
+description: "A test rule for unit testing."
+remediation: "Fix it."
+severity: HIGH
+owasp_llm: LLM01
+cwe: CWE-99
+references:
+  - "https://example.com"
+llm_routing: SELF_CONTAINED
+"""
+
+
+def _write_temp_yaml(content: str) -> Path:
+    """Write content to a temp .yaml file and return its path."""
+    f = tempfile.NamedTemporaryFile(suffix=".yaml", mode="w", delete=False)
+    f.write(content)
+    f.flush()
+    f.close()
+    return Path(f.name)
+
+
+class TestKBRuleSchema:
+    """KBRule Pydantic model validates all required fields."""
+
+    def test_valid_rule_loads_cleanly(self):
+        path = _write_temp_yaml(_VALID_RULE_YAML)
+        rule = _load_rule(path)
+        assert rule.id == "MCP-TEST-001"
+        assert rule.title == "Test rule"
+        assert rule.severity == "HIGH"
+        assert rule.cwe == "CWE-99"
+        assert rule.llm_routing == "SELF_CONTAINED"
+        assert rule.references == ["https://example.com"]
+
+    def test_missing_remediation_raises_kb_validation_error(self):
+        yaml_no_rem = _VALID_RULE_YAML.replace("remediation: \"Fix it.\"\n", "")
+        path = _write_temp_yaml(yaml_no_rem)
+        with pytest.raises(KBValidationError) as exc_info:
+            _load_rule(path)
+        assert "remediation" in str(exc_info.value)
+
+    def test_error_names_the_file(self):
+        yaml_bad = _VALID_RULE_YAML.replace("title: \"Test rule\"\n", "")
+        path = _write_temp_yaml(yaml_bad)
+        with pytest.raises(KBValidationError) as exc_info:
+            _load_rule(path)
+        assert path.name in str(exc_info.value)
+
+    def test_invalid_llm_routing_rejected(self):
+        yaml_bad = _VALID_RULE_YAML.replace(
+            "llm_routing: SELF_CONTAINED", "llm_routing: INVALID_TIER"
+        )
+        path = _write_temp_yaml(yaml_bad)
+        with pytest.raises(KBValidationError) as exc_info:
+            _load_rule(path)
+        assert "llm_routing" in str(exc_info.value)
+
+    def test_invalid_severity_rejected(self):
+        yaml_bad = _VALID_RULE_YAML.replace("severity: HIGH", "severity: EXTREME")
+        path = _write_temp_yaml(yaml_bad)
+        with pytest.raises(KBValidationError) as exc_info:
+            _load_rule(path)
+        assert "severity" in str(exc_info.value)
+
+    def test_missing_id_raises(self):
+        yaml_bad = _VALID_RULE_YAML.replace("id: MCP-TEST-001\n", "")
+        path = _write_temp_yaml(yaml_bad)
+        with pytest.raises(KBValidationError):
+            _load_rule(path)
+
+    def test_missing_cwe_raises(self):
+        yaml_bad = _VALID_RULE_YAML.replace("cwe: CWE-99\n", "")
+        path = _write_temp_yaml(yaml_bad)
+        with pytest.raises(KBValidationError) as exc_info:
+            _load_rule(path)
+        assert "cwe" in str(exc_info.value)
+
+    def test_references_optional_defaults_to_empty(self):
+        yaml_no_refs = _VALID_RULE_YAML.replace("references:\n  - \"https://example.com\"\n", "")
+        path = _write_temp_yaml(yaml_no_refs)
+        rule = _load_rule(path)
+        assert rule.references == []
+
+    def test_all_valid_routing_tiers_accepted(self):
+        for tier in ("SELF_CONTAINED", "NEEDS_CONTEXT", "NEEDS_ANALYSIS", "NEEDS_CHAIN"):
+            yaml_t = _VALID_RULE_YAML.replace("llm_routing: SELF_CONTAINED", f"llm_routing: {tier}")
+            path = _write_temp_yaml(yaml_t)
+            rule = _load_rule(path)
+            assert rule.llm_routing == tier
+
+    def test_all_valid_severity_levels_accepted(self):
+        for sev in ("LOW", "MEDIUM", "HIGH", "CRITICAL"):
+            yaml_s = _VALID_RULE_YAML.replace("severity: HIGH", f"severity: {sev}")
+            path = _write_temp_yaml(yaml_s)
+            rule = _load_rule(path)
+            assert rule.severity == sev
+
+
+class TestKBLoadsShippedRulesClean:
+    """Every shipped YAML rule in kb/ must validate against KBRule schema."""
+
+    def test_all_shipped_rules_load_without_error(self):
+        """KBRouter.__init__ would already blow up if any rule was invalid,
+        but this makes the invariant explicit and documents the intent."""
+        kb_dir = Path(__file__).parent.parent / "mcp_auditor" / "kb"
+        for yaml_file in sorted(kb_dir.glob("*.yaml")):
+            rule = _load_rule(yaml_file)
+            assert rule.id, f"{yaml_file.name}: id is empty"
+            assert rule.cwe, f"{yaml_file.name}: cwe is missing"
+            assert rule.llm_routing in (
+                "SELF_CONTAINED", "NEEDS_CONTEXT", "NEEDS_ANALYSIS", "NEEDS_CHAIN"
+            ), f"{yaml_file.name}: invalid llm_routing"
+
+    def test_router_init_does_not_raise(self):
+        """If the KB is valid, KBRouter() must not raise."""
+        try:
+            KBRouter()
+        except KBValidationError as exc:
+            pytest.fail(f"Shipped KB rule failed validation: {exc}")
+
+
+class TestCWEPropagation:
+    """CWE from the KB rule propagates into EnrichedFinding.rule_cwe (feeds P2-5 SARIF)."""
+
+    def test_rule_cwe_populated_for_known_rule(self):
+        vector = _make_vector("MCP-SSRF-001", ThreatVectorType.SSRF)
+        enriched = router.route_vector(vector)
+        assert enriched.rule_cwe == "CWE-918"
+
+    def test_rule_cwe_populated_for_cmd_injection(self):
+        vector = _make_vector("MCP-CMI-001")
+        enriched = router.route_vector(vector)
+        assert enriched.rule_cwe == "CWE-78"
+
+    def test_rule_cwe_is_none_for_unknown_rule(self):
+        vector = _make_vector("MCP-UNKNOWN-999")
+        enriched = router.route_vector(vector)
+        assert enriched.rule_cwe is None
+
+    def test_all_shipped_rules_have_cwe_in_finding(self):
+        for rule_id in router.loaded_rule_ids():
+            enriched = router.route_vector(_make_vector(rule_id))
+            assert enriched.rule_cwe is not None, (
+                f"{rule_id}: rule_cwe is None in EnrichedFinding"
+            )
+            assert enriched.rule_cwe.startswith("CWE-"), (
+                f"{rule_id}: rule_cwe '{enriched.rule_cwe}' does not start with 'CWE-'"
+            )
