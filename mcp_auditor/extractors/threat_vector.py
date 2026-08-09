@@ -137,6 +137,10 @@ class EnrichedFinding(BaseModel):
     rule_remediation: str
     rule_references: List[str] = Field(default_factory=list)
 
+    # CWE identifier from the KB rule (P1-4 / P2-5 SARIF taxa).
+    # None for findings with no matching KB entry (fallback path).
+    rule_cwe: Optional[str] = None
+
     # Routing decision from the KB (baseline per rule)
     routing: Literal["SELF_CONTAINED", "NEEDS_CONTEXT", "NEEDS_ANALYSIS", "NEEDS_CHAIN"]
 
