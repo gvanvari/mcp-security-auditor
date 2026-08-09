@@ -19,7 +19,7 @@ from typing import List
 
 import yaml
 
-from mcp_auditor.extractors.threat_vector import EnrichedFinding, ScanResult, ThreatVector
+from mcp_auditor.extractors.threat_vector import Confidence, EnrichedFinding, ScanResult, ThreatVector
 
 # Default kb/ directory — same directory as this file (mcp_auditor/kb/)
 _DEFAULT_KB_DIR = Path(__file__).parent
@@ -81,7 +81,13 @@ class KBRouter:
                 rule_remediation="Review manually — no remediation guidance available.",
                 rule_references=[],
                 routing="NEEDS_CONTEXT",
+                effective_routing="NEEDS_CONTEXT",
             )
+
+        base_routing = rule["llm_routing"]
+        effective_routing = self._compute_effective_routing(
+            base_routing, vector.confidence, vector.reachability
+        )
 
         return EnrichedFinding(
             vector=vector,
@@ -89,5 +95,32 @@ class KBRouter:
             rule_description=rule["description"].strip(),
             rule_remediation=rule["remediation"].strip(),
             rule_references=rule.get("references", []),
-            routing=rule["llm_routing"],
+            routing=base_routing,
+            effective_routing=effective_routing,
         )
+
+    @staticmethod
+    def _compute_effective_routing(
+        base_routing: str,
+        confidence: "Confidence",
+        reachability: str,
+    ) -> str:
+        """
+        Compute effective routing from the KB baseline + finding-level signals.
+
+        Rules:
+          - SELF_CONTAINED + (EXPERIMENTAL confidence OR unknown reachability)
+            → NEEDS_CONTEXT: a low-confidence or ambiguous finding needs human
+              review even when the rule normally self-describes.
+          - All other combinations: keep the KB baseline.
+
+        Note: constant reachability does NOT change routing here — it is
+        handled at the exit-code level in analyzer.py so the finding is
+        still reported but excluded from CI failure.
+        """
+        if base_routing == "SELF_CONTAINED" and (
+            confidence == Confidence.EXPERIMENTAL
+            or reachability == "unknown"
+        ):
+            return "NEEDS_CONTEXT"
+        return base_routing

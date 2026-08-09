@@ -42,8 +42,9 @@ class LLMProvider(ABC):
         Returns the same finding with llm_analysis populated (or None if
         SELF_CONTAINED).
         """
-        if finding.routing not in self._NEEDS_LLM:
-            # KB already has everything — zero tokens, return as-is
+        if finding.effective_routing not in self._NEEDS_LLM:
+            # KB already has everything (or effective routing kept it SELF_CONTAINED)
+            # — zero tokens, return as-is
             return finding
 
         analysis = self._call_llm(finding)

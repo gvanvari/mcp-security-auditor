@@ -173,9 +173,13 @@ def main(
         )
         _write_or_print(sarif, sarif_out)
 
-    # Exit code 1 when findings exist — useful for CI pipelines
+    # Exit code 1 only for reachable-or-unknown CRITICAL/HIGH findings (P1-3).
+    # constant-reachability findings are reported but excluded from CI failure —
+    # they represent hardcoded sinks with no attacker-controlled input path.
     critical_or_high = any(
-        f.vector.severity.value in ("CRITICAL", "HIGH") for f in findings
+        f.vector.severity.value in ("CRITICAL", "HIGH")
+        and f.vector.reachability in ("reachable", "unknown")
+        for f in findings
     )
     if critical_or_high:
         sys.exit(1)
