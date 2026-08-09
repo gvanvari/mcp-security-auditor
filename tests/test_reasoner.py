@@ -174,6 +174,21 @@ class TestPromptStructure:
     def test_prompt_has_kb_description(self):
         assert "shell metacharacter" in self.prompt
 
+    def test_prompt_has_confidence_tag(self):
+        """P1-3: confidence must be in the prompt so the LLM can factor it in."""
+        assert "<confidence>" in self.prompt
+        assert "</confidence>" in self.prompt
+
+    def test_prompt_has_reachability_tag(self):
+        """P1-3: reachability must be in the prompt so the LLM can factor it in."""
+        assert "<reachability>" in self.prompt
+        assert "</reachability>" in self.prompt
+
+    def test_system_prompt_explains_confidence_and_reachability(self):
+        """P1-3: system prompt must document what confidence and reachability mean."""
+        assert "confidence" in _SYSTEM_PROMPT.lower()
+        assert "reachability" in _SYSTEM_PROMPT.lower()
+
 
 # ---------------------------------------------------------------------------
 # TestInjectionSafety

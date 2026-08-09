@@ -12,9 +12,9 @@ Nothing bypasses this schema.
 from __future__ import annotations
 
 from enum import Enum
-from typing import List, Literal, Optional
+from typing import Any, List, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class Severity(str, Enum):
@@ -137,8 +137,27 @@ class EnrichedFinding(BaseModel):
     rule_remediation: str
     rule_references: List[str] = Field(default_factory=list)
 
-    # Routing decision from the KB
+    # Routing decision from the KB (baseline per rule)
     routing: Literal["SELF_CONTAINED", "NEEDS_CONTEXT", "NEEDS_ANALYSIS", "NEEDS_CHAIN"]
+
+    # Effective routing after applying confidence + reachability overrides (P1-3).
+    # This is what the LLM provider and exit-code logic actually use.
+    #
+    # Rules:
+    #   SELF_CONTAINED + (EXPERIMENTAL confidence OR unknown reachability)
+    #       → escalated to NEEDS_CONTEXT (low-confidence finding needs human triage)
+    #   constant reachability → routing unchanged, but finding excluded from exit-1
+    #   Otherwise → equals routing (KB baseline)
+    #
+    # Defaults to `routing` when not explicitly provided so test fixtures that
+    # only set `routing` still work correctly.
+    effective_routing: Optional[Literal["SELF_CONTAINED", "NEEDS_CONTEXT", "NEEDS_ANALYSIS", "NEEDS_CHAIN"]] = None
+
+    @model_validator(mode="after")
+    def _default_effective_routing(self) -> "EnrichedFinding":
+        if self.effective_routing is None:
+            object.__setattr__(self, "effective_routing", self.routing)
+        return self
 
     # Populated by the LLM provider (PR-6) — None until then
     llm_analysis: Optional[str] = None

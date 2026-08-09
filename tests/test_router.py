@@ -200,3 +200,179 @@ class TestRouteFromScan:
     def test_empty_scan_returns_empty_list(self):
         empty = router.route(ScanResult(file_path="empty.py", findings=[]))
         assert empty == []
+
+
+# ---------------------------------------------------------------------------
+# TestEffectiveRouting — P1-3
+# ---------------------------------------------------------------------------
+
+def _make_vector_with(
+    rule_id: str,
+    confidence: Confidence = Confidence.PROPOSED,
+    reachability: str = "unknown",
+) -> ThreatVector:
+    """ThreatVector with controllable confidence + reachability."""
+    return ThreatVector(
+        rule_id=rule_id,
+        type=ThreatVectorType.TOOL_POISONING,
+        severity=Severity.HIGH,
+        confidence=confidence,
+        location="function:test, line 1",
+        evidence="test evidence",
+        description="test description",
+        reachability=reachability,
+    )
+
+
+class TestEffectiveRouting:
+    """
+    P1-3: effective_routing is computed from (kb_routing, confidence, reachability).
+
+    Rule: SELF_CONTAINED + (EXPERIMENTAL OR unknown reachability) → NEEDS_CONTEXT.
+    All other combinations keep the KB baseline.
+    """
+
+    def test_experimental_on_self_contained_escalates(self):
+        """EXPERIMENTAL confidence on a SELF_CONTAINED rule → NEEDS_CONTEXT."""
+        vector = _make_vector_with("MCP-TPA-001", confidence=Confidence.EXPERIMENTAL)
+        enriched = router.route_vector(vector)
+        assert enriched.routing == "SELF_CONTAINED"           # KB baseline unchanged
+        assert enriched.effective_routing == "NEEDS_CONTEXT"  # escalated
+
+    def test_unknown_reachability_on_self_contained_escalates(self):
+        """unknown reachability on a SELF_CONTAINED rule → NEEDS_CONTEXT."""
+        vector = _make_vector_with("MCP-TPA-001", reachability="unknown")
+        enriched = router.route_vector(vector)
+        assert enriched.routing == "SELF_CONTAINED"
+        assert enriched.effective_routing == "NEEDS_CONTEXT"
+
+    def test_verified_reachable_self_contained_stays(self):
+        """VERIFIED + reachable on SELF_CONTAINED → stays SELF_CONTAINED."""
+        vector = _make_vector_with(
+            "MCP-TPA-001",
+            confidence=Confidence.VERIFIED,
+            reachability="reachable",
+        )
+        enriched = router.route_vector(vector)
+        assert enriched.effective_routing == "SELF_CONTAINED"
+
+    def test_proposed_reachable_self_contained_stays(self):
+        """PROPOSED + reachable → SELF_CONTAINED (PROPOSED is not EXPERIMENTAL)."""
+        vector = _make_vector_with(
+            "MCP-TPA-001",
+            confidence=Confidence.PROPOSED,
+            reachability="reachable",
+        )
+        enriched = router.route_vector(vector)
+        assert enriched.effective_routing == "SELF_CONTAINED"
+
+    def test_constant_reachability_keeps_routing(self):
+        """constant reachability does NOT escalate routing (handled at exit-code level)."""
+        vector = _make_vector_with("MCP-TPA-001", reachability="constant")
+        enriched = router.route_vector(vector)
+        assert enriched.effective_routing == "SELF_CONTAINED"
+
+    def test_needs_context_rule_always_stays_needs_context(self):
+        """A NEEDS_CONTEXT KB rule stays NEEDS_CONTEXT regardless of confidence."""
+        vector = _make_vector_with("MCP-SSRF-001", confidence=Confidence.EXPERIMENTAL)
+        enriched = router.route_vector(vector)
+        assert enriched.routing == "NEEDS_CONTEXT"
+        assert enriched.effective_routing == "NEEDS_CONTEXT"
+
+    def test_fallback_effective_routing_is_needs_context(self):
+        """Unknown rule_id → effective_routing == NEEDS_CONTEXT."""
+        vector = _make_vector_with("MCP-UNKNOWN-999")
+        enriched = router.route_vector(vector)
+        assert enriched.effective_routing == "NEEDS_CONTEXT"
+
+    def test_effective_routing_field_always_present(self):
+        """Every enriched finding must carry a non-None effective_routing."""
+        for rule_id in router.loaded_rule_ids():
+            enriched = router.route_vector(_make_vector(rule_id))
+            assert enriched.effective_routing is not None
+
+
+class TestEffectiveRoutingDefaultsToRouting:
+    """
+    EnrichedFinding created directly (e.g. in tests) with only `routing` set
+    must have effective_routing default to the same value as routing.
+    """
+
+    def test_needs_context_defaults(self):
+        vector = _make_vector("MCP-SSRF-001", ThreatVectorType.SSRF)
+        enriched = EnrichedFinding(
+            vector=vector,
+            rule_title="T",
+            rule_description="D",
+            rule_remediation="R",
+            routing="NEEDS_CONTEXT",
+        )
+        assert enriched.effective_routing == "NEEDS_CONTEXT"
+
+    def test_self_contained_defaults(self):
+        vector = _make_vector("MCP-TPA-001")
+        enriched = EnrichedFinding(
+            vector=vector,
+            rule_title="T",
+            rule_description="D",
+            rule_remediation="R",
+            routing="SELF_CONTAINED",
+        )
+        assert enriched.effective_routing == "SELF_CONTAINED"
+
+
+# ---------------------------------------------------------------------------
+# TestExitCodeCriteria — P1-3
+# ---------------------------------------------------------------------------
+
+def _exit1_eligible(finding: "EnrichedFinding") -> bool:
+    """Mirror the exit-1 logic from analyzer.py for unit testing."""
+    return (
+        finding.vector.severity.value in ("CRITICAL", "HIGH")
+        and finding.vector.reachability in ("reachable", "unknown")
+    )
+
+
+class TestExitCodeCriteria:
+    """
+    P1-3: exit 1 only fires for reachable-or-unknown CRITICAL/HIGH findings.
+    constant-reachability findings are excluded from CI failure.
+    """
+
+    def test_reachable_critical_triggers_exit(self):
+        v = _make_vector_with("MCP-TPA-001", reachability="reachable")
+        v = v.model_copy(update={"severity": Severity.CRITICAL})
+        f = router.route_vector(v)
+        assert _exit1_eligible(f)
+
+    def test_reachable_high_triggers_exit(self):
+        v = _make_vector_with("MCP-TPA-001", reachability="reachable")
+        f = router.route_vector(v)
+        assert _exit1_eligible(f)
+
+    def test_unknown_reachability_high_triggers_exit(self):
+        """unknown = conservative → treated like reachable for exit code."""
+        v = _make_vector_with("MCP-TPA-001", reachability="unknown")
+        f = router.route_vector(v)
+        assert _exit1_eligible(f)
+
+    def test_constant_critical_excluded_from_exit(self):
+        """constant reachability → excluded from exit-1 even if CRITICAL."""
+        v = _make_vector_with("MCP-TPA-001", reachability="constant")
+        v = v.model_copy(update={"severity": Severity.CRITICAL})
+        f = router.route_vector(v)
+        assert not _exit1_eligible(f), (
+            "constant-reachability CRITICAL must not trigger exit 1"
+        )
+
+    def test_constant_high_excluded_from_exit(self):
+        v = _make_vector_with("MCP-TPA-001", reachability="constant")
+        f = router.route_vector(v)
+        assert not _exit1_eligible(f)
+
+    def test_reachable_medium_excluded_from_exit(self):
+        """Severity MEDIUM never triggers exit 1 regardless of reachability."""
+        v = _make_vector_with("MCP-TPA-001", reachability="reachable")
+        v = v.model_copy(update={"severity": Severity.MEDIUM})
+        f = router.route_vector(v)
+        assert not _exit1_eligible(f)
