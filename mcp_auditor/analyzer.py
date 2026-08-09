@@ -193,6 +193,17 @@ def _write_or_print(content: str, path: Optional[str]) -> None:
         click.echo(content)
 
 
+# Directories never part of an MCP server's own code — used by scan_all and tests.
+_EXCLUDED_DIRS_SET: frozenset[str] = frozenset({
+    ".venv", "venv", "env",
+    "__pycache__", ".git",
+    "node_modules",
+    "tests", "test",
+    "build", "dist",
+    "site-packages",
+})
+
+
 @click.command()
 @click.argument("directory", type=click.Path(exists=True, file_okay=False))
 @click.option(
@@ -220,7 +231,13 @@ def scan_all(
     llm: bool,
     model: str,
 ) -> None:
-    """Scan all .py files in DIRECTORY and produce individual + comparison reports."""
+    """Scan all .py files in DIRECTORY (recursively) and produce individual + comparison reports.
+
+    Excluded directories: .venv, venv, env, __pycache__, .git, node_modules,
+    tests, test, build, dist, site-packages.
+
+    Note: analysis is intra-file only — cross-file data flows are not tracked.
+    """
     api_key: Optional[str] = None
     if llm:
         api_key = os.environ.get("ANTHROPIC_API_KEY")
@@ -231,7 +248,15 @@ def scan_all(
     out = Path(output_dir)
     out.mkdir(parents=True, exist_ok=True)
 
-    py_files = sorted(Path(directory).glob("*.py"))
+    root = Path(directory).resolve()
+
+    def _is_excluded(path: Path) -> bool:
+        """Return True if any path component is in the excluded set."""
+        return any(part in _EXCLUDED_DIRS_SET for part in path.relative_to(root).parts)
+
+    py_files = sorted(
+        f for f in root.rglob("*.py") if not _is_excluded(f)
+    )
     if not py_files:
         console.print(f"[yellow]No .py files found in {directory}[/yellow]")
         return
@@ -241,12 +266,16 @@ def scan_all(
     all_results: dict = {}
 
     for py_file in py_files:
-        console.print(f"  Scanning [bold]{py_file.name}[/bold]...", style="blue")
+        rel = py_file.relative_to(root)
+        # Use relative path as key so subdirectory files are distinguishable
+        result_key = str(rel)
+        console.print(f"  Scanning [bold]{rel}[/bold]...", style="blue")
         findings = analyzer.analyze(str(py_file), api_key=api_key, model=model)
-        all_results[py_file.stem] = findings
+        all_results[result_key] = findings
 
-        # Individual HTML report
-        report_path = out / f"{py_file.stem}-report.html"
+        # Individual HTML report — mirror subdir structure under output_dir
+        report_stem = str(rel).replace("/", "__").replace("\\", "__").replace(".py", "")
+        report_path = out / f"{report_stem}-report.html"
         report_path.write_text(
             html_reporter.generate(findings, file_path=str(py_file)),
             encoding="utf-8",
@@ -261,7 +290,7 @@ def scan_all(
     )
 
     # Metrics / validation report — only if EXPECTED.yaml exists next to the scanned dir
-    expected_yaml = Path(directory) / "EXPECTED.yaml"
+    expected_yaml = root / "EXPECTED.yaml"
     if expected_yaml.exists():
         import yaml
         expected = yaml.safe_load(expected_yaml.read_text(encoding="utf-8")) or {}
@@ -276,8 +305,12 @@ def scan_all(
 
     total = sum(len(v) for v in all_results.values())
     console.print(
-        f"\n[green]Done.[/green] Scanned {len(py_files)} files, "
-        f"{total} total findings."
+        f"\n[green]Done.[/green] Scanned {len(py_files)} file(s) across {root.name}/, "
+        f"{total} total finding(s)."
     )
-    console.print(f"[dim]Reports: {out}/[/dim]")
+    console.print(f"[dim]Reports:    {out}/[/dim]")
     console.print(f"[dim]Comparison: {comparison_path}[/dim]")
+    console.print(
+        f"[dim]Note: analysis boundary is intra-file; "
+        f"cross-file data flows are not tracked.[/dim]"
+    )
