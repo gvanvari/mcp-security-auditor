@@ -51,6 +51,12 @@ mcp-auditor path/to/mcp_server.py --llm
 # LLM enrichment with a specific model
 mcp-auditor path/to/mcp_server.py --llm --model claude-opus-4-5
 
+# Only fail CI on CRITICAL findings (default threshold is HIGH)
+mcp-auditor path/to/mcp_server.py --fail-on critical
+
+# Report findings but never fail CI
+mcp-auditor path/to/mcp_server.py --fail-on none
+
 # Accept today's findings as a baseline (writes .mcp-auditor-baseline by default)
 mcp-auditor path/to/mcp_server.py --write-baseline
 
@@ -74,6 +80,12 @@ mcp-auditor eval/corpus/direct-poisoning.py --llm
 
 Running without `--llm` (the default, equivalent to `--no-llm`) never contacts
 any external service and requires no credentials.
+
+### Failure threshold
+
+`--fail-on {critical,high,medium,low,none}` (default `high`) controls which
+severity causes a non-zero exit code — only reachable-or-unknown findings
+(P1-3) at or above the threshold count. `none` always exits 0 (report-only).
 
 ### Suppressing known findings
 

@@ -100,6 +100,26 @@ class Analyzer:
 # CLI
 # ---------------------------------------------------------------------------
 
+# Lower rank == more severe. Used by --fail-on to compare against a threshold.
+_SEVERITY_RANK = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}
+_FAIL_ON_CHOICES = ["critical", "high", "medium", "low", "none"]
+
+
+def _exceeds_threshold(findings: List[EnrichedFinding], fail_on: str) -> bool:
+    """
+    True if any reachable-or-unknown, non-suppressed finding (P1-3, P2-2)
+    meets or exceeds the --fail-on severity threshold. 'none' never fails.
+    """
+    if fail_on == "none":
+        return False
+    threshold_rank = _SEVERITY_RANK[fail_on.upper()]
+    return any(
+        _SEVERITY_RANK[f.vector.severity.value] <= threshold_rank
+        and f.vector.reachability in ("reachable", "unknown")
+        and not f.suppressed
+        for f in findings
+    )
+
 
 @click.command()
 @click.argument("file", type=click.Path(exists=True, readable=True))
@@ -131,6 +151,13 @@ class Analyzer:
     help="Claude model to use for LLM enrichment.",
 )
 @click.option(
+    "--fail-on",
+    type=click.Choice(_FAIL_ON_CHOICES, case_sensitive=False),
+    default="high",
+    show_default=True,
+    help="Minimum severity that causes a non-zero exit code. 'none' always exits 0.",
+)
+@click.option(
     "--baseline",
     "baseline_path",
     type=click.Path(),
@@ -151,6 +178,7 @@ def main(
     output: Optional[str],
     llm: bool,
     model: str,
+    fail_on: str,
     baseline_path: Optional[str],
     write_baseline_flag: bool,
 ) -> None:
@@ -219,18 +247,11 @@ def main(
         )
         _write_or_print(sarif, sarif_out)
 
-    # Exit code 1 only for reachable-or-unknown CRITICAL/HIGH findings (P1-3)
-    # that are not suppressed (P2-2). constant-reachability findings are
-    # reported but excluded from CI failure — they represent hardcoded sinks
-    # with no attacker-controlled input path. Suppressed findings (inline
-    # ignore or baseline) are reported but never fail CI.
-    critical_or_high = any(
-        f.vector.severity.value in ("CRITICAL", "HIGH")
-        and f.vector.reachability in ("reachable", "unknown")
-        and not f.suppressed
-        for f in findings
-    )
-    if critical_or_high:
+    # Exit code 1 when a reachable-or-unknown, non-suppressed finding (P1-3,
+    # P2-2) meets or exceeds --fail-on (P2-3, default HIGH — unchanged from
+    # prior hardcoded behavior). constant-reachability findings and suppressed
+    # findings (inline ignore or baseline) are reported but never fail CI.
+    if _exceeds_threshold(findings, fail_on):
         sys.exit(1)
 
 
@@ -274,11 +295,19 @@ _EXCLUDED_DIRS_SET: frozenset[str] = frozenset({
     show_default=True,
     help="Claude model for LLM enrichment.",
 )
+@click.option(
+    "--fail-on",
+    type=click.Choice(_FAIL_ON_CHOICES, case_sensitive=False),
+    default="high",
+    show_default=True,
+    help="Minimum severity (across all scanned files) that causes a non-zero exit code. 'none' always exits 0.",
+)
 def scan_all(
     directory: str,
     output_dir: str,
     llm: bool,
     model: str,
+    fail_on: str,
 ) -> None:
     """Scan all .py files in DIRECTORY (recursively) and produce individual + comparison reports.
 
@@ -363,3 +392,9 @@ def scan_all(
         f"[dim]Note: analysis boundary is intra-file; "
         f"cross-file data flows are not tracked.[/dim]"
     )
+
+    # Exit code 1 when any scanned file has a reachable-or-unknown finding
+    # (P1-3) meeting or exceeding --fail-on (P2-3, default HIGH).
+    all_findings = [f for findings in all_results.values() for f in findings]
+    if _exceeds_threshold(all_findings, fail_on):
+        sys.exit(1)
