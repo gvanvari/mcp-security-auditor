@@ -101,14 +101,27 @@ class HTMLReporter:
         if v.owasp_llm:
             owasp_badge = f'<span class="badge owasp">OWASP {html.escape(v.owasp_llm)}</span>'
 
+        suppressed_badge = ""
+        suppressed_note = ""
+        card_style = f"border-left: 4px solid {color}; background: {bg};"
+        if finding.suppressed:
+            suppressed_badge = '<span class="badge suppressed">🔇 SUPPRESSED</span>'
+            card_style += " opacity: 0.6;"
+            suppressed_note = f"""
+            <div class="section">
+              <strong>🔇 Suppressed</strong>
+              <p>via <code>{html.escape(finding.suppression_reason or "")}</code> — excluded from CI failure, still reported.</p>
+            </div>"""
+
         return f"""
-<div class="card" data-severity="{sev.value}" style="border-left: 4px solid {color}; background: {bg};">
+<div class="card" data-severity="{sev.value}" data-suppressed="{"true" if finding.suppressed else "false"}" style="{card_style}">
   <div class="card-header" onclick="toggle(this)">
     <span class="sev-badge" style="background:{color};">{sev.value}</span>
     <span class="card-title">Finding {index}: {html.escape(finding.rule_title)}</span>
     <span class="card-meta">
       <code>{html.escape(v.rule_id)}</code>
       {owasp_badge}
+      {suppressed_badge}
       <code class="loc">{html.escape(v.location)}</code>
     </span>
     <span class="toggle-icon">▼</span>
@@ -119,6 +132,7 @@ class HTMLReporter:
       <div><strong>Confidence</strong><br><code>{html.escape(v.confidence.value)}</code></div>
       <div><strong>Routing</strong><br><code>{html.escape(finding.routing)}</code></div>
     </div>
+    {suppressed_note}
     <div class="section">
       <strong>📝 Description</strong>
       <p>{html.escape(v.description)}</p>
@@ -174,6 +188,7 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
   .card-meta {{ display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }}
   .badge {{ padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600; }}
   .owasp {{ background: #dbeafe; color: #1d4ed8; }}
+  .suppressed {{ background: #e2e8f0; color: #475569; }}
   .loc {{ color: #64748b; font-size: 0.8rem; }}
   .toggle-icon {{ color: #94a3b8; font-size: 0.8rem; margin-left: auto; }}
   .card-body {{ padding: 0 1.25rem 1.25rem; display: none; }}
