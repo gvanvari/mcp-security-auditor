@@ -92,7 +92,7 @@ assert mcp_commands, "No mcp-auditor commands found in README — extraction reg
 
 
 @pytest.mark.parametrize("raw_cmd", mcp_commands, ids=lambda c: c[:80])
-def test_readme_command_is_valid(raw_cmd: str, tmp_path):
+def test_readme_command_is_valid(raw_cmd: str, tmp_path, monkeypatch):
     """
     Each README command must be accepted by click without a UsageError.
 
@@ -100,8 +100,14 @@ def test_readme_command_is_valid(raw_cmd: str, tmp_path):
     UsageError / BadParameter instead of calling sys.exit, and we catch
     the SystemExit that the real analysis triggers (file scan → exit(1)
     for findings) so the test still passes.
+
+    Runs with cwd set to a tmp_path so commands with relative output paths
+    (-o report.html, --write-baseline's default .mcp-auditor-baseline, etc.)
+    don't write into the repo working tree.
     """
-    args = _normalise_command(raw_cmd, CORPUS_FILE)
+    real_file = str((Path(__file__).parent.parent / CORPUS_FILE).resolve())
+    monkeypatch.chdir(tmp_path)
+    args = _normalise_command(raw_cmd, real_file)
 
     # Intercept calls that need a real ANTHROPIC_API_KEY (--llm commands).
     # We only want to validate option parsing, not run the LLM.

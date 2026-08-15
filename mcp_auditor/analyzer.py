@@ -29,6 +29,13 @@ from mcp_auditor.reporters.sarif_reporter import SARIFReporter
 from mcp_auditor.reporters.html_reporter import HTMLReporter
 from mcp_auditor.reporters.comparison_reporter import ComparisonReporter
 from mcp_auditor.reporters.metrics_reporter import MetricsReporter
+from mcp_auditor.suppression import (
+    DEFAULT_BASELINE_PATH,
+    apply_baseline,
+    apply_inline_ignores,
+    load_baseline,
+    write_baseline,
+)
 
 console = Console(stderr=True)
 
@@ -123,12 +130,29 @@ class Analyzer:
     show_default=True,
     help="Claude model to use for LLM enrichment.",
 )
+@click.option(
+    "--baseline",
+    "baseline_path",
+    type=click.Path(),
+    default=None,
+    help=f"Path to a baseline file of accepted findings (default: {DEFAULT_BASELINE_PATH}). "
+    "Findings matching the baseline are suppressed (still shown, marked) and excluded from CI failure.",
+)
+@click.option(
+    "--write-baseline",
+    "write_baseline_flag",
+    is_flag=True,
+    default=False,
+    help="Write current findings to the baseline file (see --baseline) instead of reporting, then exit.",
+)
 def main(
     file: str,
     output_format: str,
     output: Optional[str],
     llm: bool,
     model: str,
+    baseline_path: Optional[str],
+    write_baseline_flag: bool,
 ) -> None:
     """Audit an MCP server Python file for security threats."""
 
@@ -150,13 +174,35 @@ def main(
     analyzer = Analyzer()
     findings = analyzer.analyze(file, api_key=api_key, model=model)
 
+    # Suppression (P2-2) — inline ignore comments always apply; baseline is opt-in.
+    findings = apply_inline_ignores(findings, file)
+
+    effective_baseline_path = baseline_path or DEFAULT_BASELINE_PATH
+
+    if write_baseline_flag:
+        written = write_baseline(findings, file, effective_baseline_path)
+        console.print(
+            f"[green]Baseline written[/green] to {effective_baseline_path} "
+            f"({written} finding(s))."
+        )
+        return
+
+    if baseline_path:
+        if not Path(baseline_path).exists():
+            console.print(f"[yellow]Baseline file not found:[/yellow] {baseline_path} (treating as empty)")
+        findings = apply_baseline(findings, file, load_baseline(baseline_path))
+
     if not findings:
         console.print("[green]No findings detected.[/green]")
         if output:
             Path(output).write_text("No findings detected.\n", encoding="utf-8")
         return
 
-    console.print(f"Found [bold red]{len(findings)}[/bold red] finding(s).")
+    suppressed_count = sum(1 for f in findings if f.suppressed)
+    summary = f"Found [bold red]{len(findings)}[/bold red] finding(s)"
+    if suppressed_count:
+        summary += f", [dim]{suppressed_count} suppressed[/dim]"
+    console.print(summary + ".")
 
     if output_format in ("markdown", "both"):
         md = MarkdownReporter().generate(findings, file_path=file)
@@ -173,12 +219,15 @@ def main(
         )
         _write_or_print(sarif, sarif_out)
 
-    # Exit code 1 only for reachable-or-unknown CRITICAL/HIGH findings (P1-3).
-    # constant-reachability findings are reported but excluded from CI failure —
-    # they represent hardcoded sinks with no attacker-controlled input path.
+    # Exit code 1 only for reachable-or-unknown CRITICAL/HIGH findings (P1-3)
+    # that are not suppressed (P2-2). constant-reachability findings are
+    # reported but excluded from CI failure — they represent hardcoded sinks
+    # with no attacker-controlled input path. Suppressed findings (inline
+    # ignore or baseline) are reported but never fail CI.
     critical_or_high = any(
         f.vector.severity.value in ("CRITICAL", "HIGH")
         and f.vector.reachability in ("reachable", "unknown")
+        and not f.suppressed
         for f in findings
     )
     if critical_or_high:

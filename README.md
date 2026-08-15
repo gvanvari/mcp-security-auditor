@@ -50,6 +50,12 @@ mcp-auditor path/to/mcp_server.py --llm
 
 # LLM enrichment with a specific model
 mcp-auditor path/to/mcp_server.py --llm --model claude-opus-4-5
+
+# Accept today's findings as a baseline (writes .mcp-auditor-baseline by default)
+mcp-auditor path/to/mcp_server.py --write-baseline
+
+# Only fail CI on findings not already in the baseline
+mcp-auditor path/to/mcp_server.py --baseline .mcp-auditor-baseline
 ```
 
 ### LLM enrichment
@@ -68,6 +74,20 @@ mcp-auditor eval/corpus/direct-poisoning.py --llm
 
 Running without `--llm` (the default, equivalent to `--no-llm`) never contacts
 any external service and requires no credentials.
+
+### Suppressing known findings
+
+Two ways to accept a finding without it breaking CI — both keep the finding
+visible in reports (marked as suppressed), they just exclude it from the
+exit-code check:
+
+- **Inline ignore comment** — add `# mcp-auditor: ignore[RULE-ID]` on the
+  offending source line (or a bare `# mcp-auditor: ignore` to suppress every
+  rule reported on that line).
+- **Baseline file** — run `--write-baseline` to snapshot current findings as
+  accepted, then pass `--baseline PATH` on future runs so only *new* findings
+  fail CI. Baseline entries are fingerprinted on rule id + location + evidence,
+  so a finding that moves or changes is treated as new.
 
 ---
 

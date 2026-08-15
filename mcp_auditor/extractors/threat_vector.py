@@ -165,3 +165,9 @@ class EnrichedFinding(BaseModel):
 
     # Populated by the LLM provider (PR-6) — None until then
     llm_analysis: Optional[str] = None
+
+    # Suppression (P2-2) — set by mcp_auditor.suppression, never dropped from
+    # the result list. Suppressed findings stay visible in reports (marked)
+    # but are excluded from CI-failure logic.
+    suppressed: bool = False
+    suppression_reason: Optional[Literal["inline-ignore", "baseline"]] = None
