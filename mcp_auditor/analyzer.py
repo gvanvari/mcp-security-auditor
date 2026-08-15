@@ -222,15 +222,16 @@ def main(
 
     if not findings:
         console.print("[green]No findings detected.[/green]")
-        if output:
-            Path(output).write_text("No findings detected.\n", encoding="utf-8")
-        return
+    else:
+        suppressed_count = sum(1 for f in findings if f.suppressed)
+        summary = f"Found [bold red]{len(findings)}[/bold red] finding(s)"
+        if suppressed_count:
+            summary += f", [dim]{suppressed_count} suppressed[/dim]"
+        console.print(summary + ".")
 
-    suppressed_count = sum(1 for f in findings if f.suppressed)
-    summary = f"Found [bold red]{len(findings)}[/bold red] finding(s)"
-    if suppressed_count:
-        summary += f", [dim]{suppressed_count} suppressed[/dim]"
-    console.print(summary + ".")
+    # Reporters handle an empty findings list on their own (a valid empty
+    # SARIF log, an "empty" HTML/Markdown report) — always route through them
+    # so --format is honored (in particular --format sarif) even when clean.
 
     if output_format in ("markdown", "both"):
         md = MarkdownReporter().generate(findings, file_path=file)

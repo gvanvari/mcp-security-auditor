@@ -1,0 +1,82 @@
+name: 'MCP Security Auditor'
+description: >-
+  Static security analysis for Model Context Protocol (MCP) servers — tool
+  poisoning, SSRF, command injection, secret exposure. Scans .py files and
+  emits a combined SARIF 2.1.0 report for GitHub Code Scanning.
+author: 'gvanvari'
+branding:
+  icon: 'shield'
+  color: 'red'
+
+inputs:
+  path:
+    description: >-
+      File or directory to scan, relative to the workspace. Directories are
+      scanned recursively for *.py files (excluding .venv, venv, env,
+      __pycache__, .git, node_modules, tests, test, build, dist,
+      site-packages).
+    required: false
+    default: '.'
+  format:
+    description: >-
+      Format for the human-readable report artifact written alongside the
+      SARIF output: markdown, html, or none. SARIF is always produced
+      separately for Code Scanning regardless of this value.
+    required: false
+    default: 'markdown'
+  fail-on:
+    description: 'Minimum severity that fails the action: critical, high, medium, low, none.'
+    required: false
+    default: 'high'
+  llm:
+    description: 'Enable LLM enrichment for NEEDS_CONTEXT/NEEDS_ANALYSIS findings. Requires anthropic-api-key.'
+    required: false
+    default: 'false'
+  anthropic-api-key:
+    description: 'Anthropic API key. Only read when llm is true.'
+    required: false
+    default: ''
+  model:
+    description: 'Claude model used for LLM enrichment.'
+    required: false
+    default: 'claude-haiku-4-5'
+  baseline:
+    description: 'Path to a baseline file of accepted findings (see README → Suppressing known findings). Unset disables baseline suppression.'
+    required: false
+    default: ''
+
+outputs:
+  sarif-path:
+    description: 'Path to the combined SARIF 2.1.0 file produced by the scan.'
+    value: ${{ steps.scan.outputs.sarif-path }}
+  findings-count:
+    description: 'Total number of findings across all scanned files.'
+    value: ${{ steps.scan.outputs.findings-count }}
+  report-path:
+    description: 'Path to the human-readable report (markdown/html), when --format is not none.'
+    value: ${{ steps.scan.outputs.report-path }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Install mcp-security-auditor
+      shell: bash
+      run: pip install "${{ github.action_path }}"
+
+    - name: Run scan
+      id: scan
+      shell: bash
+      env:
+        INPUT_PATH: ${{ inputs.path }}
+        INPUT_FORMAT: ${{ inputs.format }}
+        INPUT_FAIL_ON: ${{ inputs.fail-on }}
+        INPUT_LLM: ${{ inputs.llm }}
+        INPUT_MODEL: ${{ inputs.model }}
+        INPUT_BASELINE: ${{ inputs.baseline }}
+        ANTHROPIC_API_KEY: ${{ inputs.anthropic-api-key }}
+      run: "${{ github.action_path }}/scripts/run-scan.sh"

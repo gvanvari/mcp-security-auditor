@@ -103,6 +103,46 @@ exit-code check:
 
 ---
 
+## GitHub Action
+
+This repo is itself a composite [GitHub Action](action.yml) — point it at a
+path, get SARIF for Code Scanning:
+
+```yaml
+permissions:
+  contents: read
+  security-events: write # required to upload SARIF
+
+jobs:
+  mcp-security-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: gvanvari/mcp-security-auditor@main
+        id: audit
+        with:
+          path: . # file or directory, scanned recursively
+          fail-on: high # critical | high | medium | low | none
+
+      - uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: ${{ steps.audit.outputs.sarif-path }}
+```
+
+Inputs mirror the CLI: `path`, `format` (report artifact alongside SARIF —
+`markdown`, `html`, or `none`), `fail-on`, `llm` (+ `anthropic-api-key`,
+`model`), and `baseline`. Outputs: `sarif-path`, `report-path`,
+`findings-count`. The action fails the step when `fail-on` is tripped —
+combine with `continue-on-error: true` on the scan step if you want the SARIF
+upload to run regardless (see
+[`.github/workflows/mcp-security-scan.yml`](.github/workflows/mcp-security-scan.yml)
+for the full pattern, including a job that scans this repo's own intentionally
+vulnerable [`eval/corpus`](eval/corpus) benchmark with `fail-on: none` purely
+to demonstrate SARIF upload + PR annotations).
+
+---
+
 ## Threat coverage
 
 | KB Rule               | Threat                                                       | OWASP LLM |
