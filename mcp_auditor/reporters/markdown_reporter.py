@@ -74,19 +74,27 @@ class MarkdownReporter:
         for severity in [Severity.CRITICAL, Severity.HIGH, Severity.MEDIUM, Severity.LOW]:
             rows.append(f"| {_SEVERITY_BADGE[severity]} | {counts[severity]} |")
         rows.append(f"| **Total** | **{len(findings)}** |")
+        suppressed = sum(1 for f in findings if f.suppressed)
+        if suppressed:
+            rows.append(f"| **Suppressed** | **{suppressed}** |")
         return "\n".join(rows)
 
     def _render_finding(self, index: int, finding: EnrichedFinding) -> str:
         v = finding.vector
         badge = _SEVERITY_BADGE[v.severity]
+        title_suffix = " 🔇 SUPPRESSED" if finding.suppressed else ""
         lines = [
-            f"### Finding {index}: {finding.rule_title}",
+            f"### Finding {index}: {finding.rule_title}{title_suffix}",
             "",
             f"**Severity:** {badge}  ",
             f"**Rule:** `{v.rule_id}`  ",
             f"**Type:** `{v.type.value}`  ",
             f"**Confidence:** `{v.confidence.value}`  ",
             f"**Location:** `{v.location}`  ",
+        ]
+        if finding.suppressed:
+            lines.append(f"**Suppressed:** `{finding.suppression_reason}` — excluded from CI failure  ")
+        lines += [
             "",
             "**Evidence:**",
             f"```\n{v.evidence}\n```",

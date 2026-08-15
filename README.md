@@ -56,6 +56,12 @@ mcp-auditor path/to/mcp_server.py --fail-on critical
 
 # Report findings but never fail CI
 mcp-auditor path/to/mcp_server.py --fail-on none
+
+# Accept today's findings as a baseline (writes .mcp-auditor-baseline by default)
+mcp-auditor path/to/mcp_server.py --write-baseline
+
+# Only fail CI on findings not already in the baseline
+mcp-auditor path/to/mcp_server.py --baseline .mcp-auditor-baseline
 ```
 
 ### LLM enrichment
@@ -80,6 +86,20 @@ any external service and requires no credentials.
 `--fail-on {critical,high,medium,low,none}` (default `high`) controls which
 severity causes a non-zero exit code — only reachable-or-unknown findings
 (P1-3) at or above the threshold count. `none` always exits 0 (report-only).
+
+### Suppressing known findings
+
+Two ways to accept a finding without it breaking CI — both keep the finding
+visible in reports (marked as suppressed), they just exclude it from the
+exit-code check:
+
+- **Inline ignore comment** — add `# mcp-auditor: ignore[RULE-ID]` on the
+  offending source line (or a bare `# mcp-auditor: ignore` to suppress every
+  rule reported on that line).
+- **Baseline file** — run `--write-baseline` to snapshot current findings as
+  accepted, then pass `--baseline PATH` on future runs so only *new* findings
+  fail CI. Baseline entries are fingerprinted on rule id + location + evidence,
+  so a finding that moves or changes is treated as new.
 
 ---
 

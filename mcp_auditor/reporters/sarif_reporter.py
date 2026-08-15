@@ -124,6 +124,17 @@ class SARIFReporter:
                     "routing": f.routing,
                 },
             }
+
+            # P2-2 — suppressed findings stay in results (still visible in
+            # GitHub Code Scanning as "dismissed") rather than being dropped.
+            if f.suppressed:
+                result["suppressions"] = [
+                    {
+                        "kind": "inSource" if f.suppression_reason == "inline-ignore" else "external",
+                        "justification": f"Suppressed via {f.suppression_reason}",
+                    }
+                ]
+
             results.append(result)
         return results
 
