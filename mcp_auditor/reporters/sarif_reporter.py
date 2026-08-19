@@ -95,7 +95,6 @@ class SARIFReporter:
                 "name": f.rule_title.replace(" ", ""),
                 "shortDescription": {"text": f.rule_title},
                 "fullDescription": {"text": f.rule_description},
-                "helpUri": f.rule_references[0] if f.rule_references else "",
                 "help": {"text": f.rule_remediation, "markdown": f.rule_remediation},
                 "properties": {
                     "security-severity": _SECURITY_SEVERITY[f.vector.severity],
@@ -103,6 +102,10 @@ class SARIFReporter:
                 },
                 "defaultConfiguration": {"level": _SARIF_LEVEL[f.vector.severity]},
             }
+
+            help_uri = self._help_uri(f.rule_references)
+            if help_uri:
+                rule["helpUri"] = help_uri
 
             if cwe_num:
                 rule["relationships"] = [
@@ -135,6 +138,21 @@ class SARIFReporter:
                 "taxa": [{"id": n, "name": f"CWE-{n}"} for n in cwe_nums],
             }
         ]
+
+    def _help_uri(self, references: List[str]) -> str:
+        """
+        First actual URL in `references`, else "".
+
+        rule_references mixes plain-text citations ("OWASP LLM08: Excessive
+        Agency", "CWE-918: Server-Side Request Forgery") with real URLs.
+        `helpUri` must be a URI per the SARIF schema — GitHub Code Scanning's
+        SARIF ingestion warns and drops the field otherwise, so filter to
+        http(s) links rather than blindly taking references[0].
+        """
+        for ref in references:
+            if ref.startswith("http://") or ref.startswith("https://"):
+                return ref
+        return ""
 
     def _cwe_number(self, cwe: str | None) -> str | None:
         """'CWE-918' -> '918'. None/malformed input -> None."""

@@ -145,10 +145,35 @@ class TestRunScanScript:
         assert rc == 0, log
         sarif = json.loads(Path(outputs["sarif-path"]).read_text(encoding="utf-8"))
         jsonschema.validate(sarif, SCHEMA)
-        assert len(sarif["runs"]) == 2
-        total_results = sum(len(r["results"]) for r in sarif["runs"])
+        # Exactly one run: GitHub Code Scanning rejects multiple runs sharing
+        # an upload category, so per-file SARIF runs must collapse into one.
+        assert len(sarif["runs"]) == 1
+        total_results = len(sarif["runs"][0]["results"])
         assert int(outputs["findings-count"]) == total_results
         assert total_results >= 1
+
+    def test_directory_scan_dedupes_rules_across_files(self, tmp_path):
+        pkg = tmp_path / "pkg"
+        pkg.mkdir()
+        (pkg / "a.py").write_text(_VULNERABLE_SOURCE, encoding="utf-8")
+        (pkg / "b.py").write_text(_VULNERABLE_SOURCE, encoding="utf-8")
+
+        rc, outputs, log = _run_script(
+            tmp_path,
+            {
+                "INPUT_PATH": str(pkg),
+                "INPUT_FORMAT": "none",
+                "INPUT_FAIL_ON": "none",
+                "INPUT_LLM": "false",
+                "INPUT_BASELINE": "",
+            },
+        )
+        assert rc == 0, log
+        sarif = json.loads(Path(outputs["sarif-path"]).read_text(encoding="utf-8"))
+        jsonschema.validate(sarif, SCHEMA)
+        rule_ids = [r["id"] for r in sarif["runs"][0]["tool"]["driver"]["rules"]]
+        assert len(rule_ids) == len(set(rule_ids))
+        assert len(sarif["runs"][0]["results"]) == 2  # one finding per file
 
     def test_directory_scan_excludes_venv(self, tmp_path):
         pkg = tmp_path / "pkg"

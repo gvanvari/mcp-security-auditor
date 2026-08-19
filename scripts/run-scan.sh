@@ -89,23 +89,62 @@ TOTAL_FINDINGS="$(python3 - "$COMBINED_SARIF" "${part_sarifs[@]}" <<'PYEOF'
 import json
 import sys
 
+# Merge every per-file SARIF doc into a SINGLE run. GitHub Code Scanning
+# rejects multiple runs sharing one upload category (as of 2025-07-21 —
+# https://github.blog/changelog/2025-07-21-code-scanning-will-stop-combining-multiple-sarif-runs-uploaded-in-the-same-sarif-file/),
+# and this action always uploads under one category per job, so N per-file
+# runs must collapse into one before upload rather than being concatenated.
 out_path, *parts = sys.argv[1:]
-merged = None
-total = 0
+
+merged_doc = None
+merged_run = None
+rules_by_id: dict[str, dict] = {}
+results: list[dict] = []
+taxonomy_meta_by_name: dict[str, dict] = {}  # taxonomy name -> its non-taxa fields
+taxa_by_name: dict[str, dict[str, dict]] = {}  # taxonomy name -> {taxon id: taxon}
+
 for p in parts:
     with open(p, encoding="utf-8") as fh:
         doc = json.load(fh)
+
     for run in doc["runs"]:
-        total += len(run["results"])
-    if merged is None:
-        merged = doc
-    else:
-        merged["runs"].extend(doc["runs"])
+        results.extend(run["results"])
+
+        driver = run["tool"]["driver"]
+        for rule in driver.get("rules", []):
+            rules_by_id.setdefault(rule["id"], rule)
+
+        for taxonomy in run.get("taxonomies", []):
+            name = taxonomy["name"]
+            taxonomy_meta_by_name.setdefault(
+                name, {k: v for k, v in taxonomy.items() if k != "taxa"}
+            )
+            taxa_for_name = taxa_by_name.setdefault(name, {})
+            for taxon in taxonomy.get("taxa", []):
+                taxa_for_name.setdefault(taxon["id"], taxon)
+
+        if merged_doc is None:
+            merged_doc = doc
+            merged_run = run
+
+if merged_doc is None:
+    raise SystemExit("no SARIF parts to merge")
+
+merged_run["tool"]["driver"]["rules"] = list(rules_by_id.values())
+merged_run["results"] = results
+
+if taxa_by_name:
+    merged_run["taxonomies"] = [
+        {**taxonomy_meta_by_name[name], "taxa": list(taxa.values())}
+        for name, taxa in taxa_by_name.items()
+    ]
+
+merged_doc["runs"] = [merged_run]
 
 with open(out_path, "w", encoding="utf-8") as fh:
-    json.dump(merged, fh, indent=2)
+    json.dump(merged_doc, fh, indent=2)
 
-print(total)
+print(len(results))
 PYEOF
 )"
 
