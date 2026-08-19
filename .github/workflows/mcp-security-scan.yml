@@ -1,0 +1,61 @@
+name: MCP Security Scan
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+
+permissions:
+  contents: read
+  security-events: write # required by github/codeql-action/upload-sarif
+
+jobs:
+  # Dogfoods the action against this repo's own source. This is the workflow
+  # a downstream consumer would copy: one step to run the action, one to
+  # upload its SARIF output to Code Scanning (which drives PR annotations).
+  self-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run MCP Security Auditor
+        id: audit
+        uses: ./
+        continue-on-error: true # let SARIF upload run even if findings fail the gate
+        with:
+          path: mcp_auditor
+          fail-on: high
+
+      - name: Upload SARIF to GitHub Code Scanning
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: ${{ steps.audit.outputs.sarif-path }}
+          category: mcp-security-auditor-self
+
+      - name: Fail the job if the scan gate tripped
+        if: steps.audit.outcome == 'failure'
+        run: exit 1
+
+  # eval/corpus is an intentionally-vulnerable benchmark used to validate
+  # detection accuracy (see eval/EXPECTED.yaml), not real production code —
+  # fail-on: none so its known findings surface as SARIF / PR annotations
+  # without failing CI. Useful for confirming annotations show up at all.
+  corpus-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run MCP Security Auditor
+        id: audit
+        uses: ./
+        with:
+          path: eval/corpus
+          fail-on: none
+          format: none
+
+      - name: Upload SARIF to GitHub Code Scanning
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: ${{ steps.audit.outputs.sarif-path }}
+          category: mcp-security-auditor-corpus
