@@ -373,8 +373,10 @@ def scan_all(
     if expected_yaml.exists():
         import yaml
         expected = yaml.safe_load(expected_yaml.read_text(encoding="utf-8")) or {}
-        # Strip empty lists (files with no expected findings)
-        expected = {k: v for k, v in expected.items() if v}
+        # Empty lists (files with NO expected findings) are kept, not stripped —
+        # MetricsReporter needs them to detect false positives on benign
+        # fixtures (P2-6). A file with a "[]" entry that fires anything is a
+        # real false positive; dropping it here made precision unmeasurable.
         metrics_path = out / "metrics-report.html"
         metrics_path.write_text(
             MetricsReporter().generate(all_results, expected),

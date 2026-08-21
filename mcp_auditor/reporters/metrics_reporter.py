@@ -7,9 +7,17 @@ Input:
 
 Output: HTML validation report showing:
   - Per-file pass/fail/miss
-  - Overall recall and precision
+  - Overall recall, precision, and false-positive rate
+  - Per-rule precision/recall breakdown
   - False positive breakdown
   - Gap analysis narrative
+
+Iterates over the UNION of expected.keys() and scan_results.keys(), not just
+expected.keys() — a file scanned with no EXPECTED.yaml entry (or an empty
+"[]" entry, i.e. a benign fixture) must still be checked for unexpected
+findings, or false positives on clean files are invisible to this report
+(P2-6 — this was the root cause of the unquantified "zero false positives"
+claim: scan_all used to strip empty-list entries before calling here).
 """
 
 from __future__ import annotations
@@ -35,12 +43,22 @@ class MetricsReporter:
     ) -> str:
         """
         scan_results: {"cmd-injection": [EnrichedFinding, ...], ...}
-        expected: {"cmd-injection": [{"rule": "MCP-CMI-001", "line": 16, "severity": "HIGH"}, ...], ...}
+        expected: {"cmd-injection": [{"rule": "MCP-CMI-001", "line": 16, "severity": "HIGH"}, ...],
+                   "clean-body": [], ...}   # "[]" = benign fixture, still checked for FPs
         """
-        all_rows = []
+        all_rows: List[Dict[str, Any]] = []
         tp = fp = fn = 0
+        # rule_id -> {"tp": int, "fp": int, "fn": int}
+        per_rule: Dict[str, Dict[str, int]] = {}
 
-        for mcp_name in sorted(expected.keys()):
+        def _bump(rule: str, key: str) -> None:
+            per_rule.setdefault(rule, {"tp": 0, "fp": 0, "fn": 0})[key] += 1
+
+        mcp_names = sorted(set(expected.keys()) | set(scan_results.keys()))
+        benign_files = 0
+        benign_files_with_fp = 0
+
+        for mcp_name in mcp_names:
             expected_list = expected.get(mcp_name, [])
             findings = scan_results.get(mcp_name, [])
             found_rules = [f.vector.rule_id for f in findings]
@@ -50,9 +68,11 @@ class MetricsReporter:
                 matched = rule in found_rules
                 if matched:
                     tp += 1
+                    _bump(rule, "tp")
                     status = "PASS"
                 else:
                     fn += 1
+                    _bump(rule, "fn")
                     status = "MISS"
 
                 all_rows.append({
@@ -65,9 +85,12 @@ class MetricsReporter:
 
             # False positives: rules fired that were NOT in expected
             expected_rules = {e["rule"] for e in expected_list}
+            file_fp_count = 0
             for f in findings:
                 if f.vector.rule_id not in expected_rules:
                     fp += 1
+                    file_fp_count += 1
+                    _bump(f.vector.rule_id, "fp")
                     all_rows.append({
                         "mcp": mcp_name,
                         "expected_rule": f"(unexpected) {f.vector.rule_id}",
@@ -76,9 +99,18 @@ class MetricsReporter:
                         "note": "Not in EXPECTED — may be false positive",
                     })
 
+            if not expected_list:
+                # A benign fixture — the file this tool is supposed to leave alone.
+                benign_files += 1
+                if file_fp_count:
+                    benign_files_with_fp += 1
+
         total_expected = tp + fn
         recall = round(100 * tp / total_expected, 1) if total_expected else 0
         precision = round(100 * tp / (tp + fp), 1) if (tp + fp) else 0
+        fp_rate = round(100 * benign_files_with_fp / benign_files, 1) if benign_files else 0
+
+        per_rule_html = self._render_per_rule(per_rule)
 
         rows_html = ""
         for row in all_rows:
@@ -118,10 +150,53 @@ class MetricsReporter:
             fn=fn,
             recall=recall,
             precision=precision,
+            fp_rate=fp_rate,
+            benign_files=benign_files,
+            benign_files_with_fp=benign_files_with_fp,
             total_expected=total_expected,
+            per_rule=per_rule_html,
             rows=rows_html,
             gaps=gaps_html,
         )
+
+    # ------------------------------------------------------------------
+    # Private helpers
+    # ------------------------------------------------------------------
+
+    def _render_per_rule(self, per_rule: Dict[str, Dict[str, int]]) -> str:
+        if not per_rule:
+            return "<p style='color:#64748b;'>No rules exercised.</p>"
+
+        rows = ""
+        for rule_id in sorted(per_rule.keys()):
+            counts = per_rule[rule_id]
+            rtp, rfp, rfn = counts["tp"], counts["fp"], counts["fn"]
+            r_total_expected = rtp + rfn
+            r_recall = round(100 * rtp / r_total_expected, 1) if r_total_expected else None
+            r_precision = round(100 * rtp / (rtp + rfp), 1) if (rtp + rfp) else None
+            recall_str = f"{r_recall}%" if r_recall is not None else "—"
+            precision_str = f"{r_precision}%" if r_precision is not None else "—"
+            rows += f"""
+<tr>
+  <td><code>{html.escape(rule_id)}</code></td>
+  <td>{rtp}</td>
+  <td>{rfp}</td>
+  <td>{rfn}</td>
+  <td>{precision_str}</td>
+  <td>{recall_str}</td>
+</tr>"""
+
+        return f"""<table>
+  <tr>
+    <th>Rule</th>
+    <th>TP</th>
+    <th>FP</th>
+    <th>FN</th>
+    <th>Precision</th>
+    <th>Recall</th>
+  </tr>
+  {rows}
+</table>"""
 
 
 _METRICS_TEMPLATE = """<!DOCTYPE html>
@@ -144,8 +219,10 @@ _METRICS_TEMPLATE = """<!DOCTYPE html>
              border: 1px solid #e2e8f0; text-align: center; min-width: 130px; }}
   .metric-num {{ font-size: 2rem; font-weight: 700; }}
   .metric-label {{ font-size: 0.75rem; color: #64748b; text-transform: uppercase; }}
+  .metric-sub {{ font-size: 0.7rem; color: #94a3b8; margin-top: 0.15rem; }}
   .metric.recall .metric-num {{ color: #2563eb; }}
   .metric.precision .metric-num {{ color: #7c3aed; }}
+  .metric.fprate .metric-num {{ color: #ea580c; }}
   .metric.tp .metric-num {{ color: #16a34a; }}
   .metric.fp .metric-num {{ color: #7c3aed; }}
   .metric.fn .metric-num {{ color: #dc2626; }}
@@ -179,6 +256,11 @@ _METRICS_TEMPLATE = """<!DOCTYPE html>
       <div class="metric-num">{precision}%</div>
       <div class="metric-label">Precision</div>
     </div>
+    <div class="metric fprate">
+      <div class="metric-num">{fp_rate}%</div>
+      <div class="metric-label">FP rate</div>
+      <div class="metric-sub">{benign_files_with_fp}/{benign_files} benign files flagged</div>
+    </div>
     <div class="metric tp">
       <div class="metric-num">{tp}</div>
       <div class="metric-label">True Positives</div>
@@ -192,6 +274,9 @@ _METRICS_TEMPLATE = """<!DOCTYPE html>
       <div class="metric-label">False Negatives</div>
     </div>
   </div>
+
+  <h2>Per-Rule Breakdown</h2>
+  {per_rule}
 
   <h2>Per-Finding Breakdown</h2>
   <div class="legend">

@@ -12,6 +12,35 @@ clean-body.py: []
 # clean-body.py has NO intentional vulnerabilities.
 # If the tool fires anything here, it is a false positive.
 
+benign-contact-info.py: []
+# Maintainer email + phone number in a docstring, no cross-tool override
+# structure. Regression fixture for the shadowing detector's weak (email/
+# phone) indicators — see tool_description_analyzer.py SHADOWING_WEAK_PATTERNS.
+# Known false-positive source (P2-6): currently fires MCP-SHADOW-001 at
+# LOW/EXPERIMENTAL — informational, but still an unexpected finding here.
+
+benign-notification.py: []
+# A send_notification-style docstring describing the tool's OWN behavior,
+# with no cross-tool override structure. Regression fixture for the same
+# weak shadowing indicators (send_message/send_email keyword).
+# Known false-positive source (P2-6): currently fires MCP-SHADOW-001 at
+# LOW/EXPERIMENTAL.
+
+benign-config-read.py: []
+# os.getenv() with a hardcoded (literal) key, value never returned to the
+# caller. Regression fixture for the reachability-aware MCP-SEC-001 detector.
+# Known false-positive source (P2-6): the key is a literal, so reachability
+# classifies as "constant" and the finding is downgraded to LOW/EXPERIMENTAL
+# — still an unexpected finding here.
+
+benign-fixed-endpoint.py: []
+# requests.get() with a single hardcoded (literal) internal URL, never
+# derived from tool input. Regression fixture for the reachability-aware
+# MCP-SSRF-001 detector.
+# Known false-positive source (P2-6): the URL is a literal, so reachability
+# classifies as "constant" and the finding is downgraded to MEDIUM/EXPERIMENTAL
+# — still an unexpected finding here.
+
 cmd-injection.py:
   - rule: MCP-CMI-001
     line: 16
