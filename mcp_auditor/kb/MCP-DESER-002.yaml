@@ -1,0 +1,26 @@
+id: MCP-DESER-002
+title: "Arbitrary code execution via unsafe yaml.load"
+severity: CRITICAL
+owasp_llm: LLM08
+cwe: CWE-502
+
+description: >
+  A call to yaml.load() was detected without an explicit SafeLoader.
+  PyYAML's default loader supports tags like !!python/object/apply that
+  construct and call arbitrary Python objects while parsing — the same
+  capability pickle has. If the YAML document originates from outside
+  the process, parsing it with the unsafe loader is equivalent to running
+  attacker-supplied code inside the MCP server process.
+
+remediation: >
+  Replace yaml.load(data) with yaml.safe_load(data), or pass
+  Loader=yaml.SafeLoader explicitly if you need load()'s extra options.
+  SafeLoader restricts construction to simple Python types (dict, list,
+  str, int, float, bool, None) and cannot invoke arbitrary code.
+
+references:
+  - "OWASP LLM08: Excessive Agency"
+  - "CWE-502: Deserialization of Untrusted Data"
+  - "https://pyyaml.org/wiki/PyYAMLDocumentation"
+
+llm_routing: SELF_CONTAINED

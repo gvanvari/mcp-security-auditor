@@ -38,6 +38,8 @@ EXPECTED_RULE_IDS = {
     "MCP-CMI-003",
     "MCP-SEC-001",
     "MCP-SSRF-001",
+    "MCP-DESER-001",
+    "MCP-DESER-002",
 }
 
 
@@ -72,8 +74,8 @@ class TestKBLoading:
         loaded = set(router.loaded_rule_ids())
         assert EXPECTED_RULE_IDS == loaded
 
-    def test_loads_nine_rules(self):
-        assert len(router.loaded_rule_ids()) == 9
+    def test_loads_eleven_rules(self):
+        assert len(router.loaded_rule_ids()) == 11
 
 
 # ---------------------------------------------------------------------------

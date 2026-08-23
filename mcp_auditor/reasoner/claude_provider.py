@@ -127,9 +127,13 @@ class ClaudeProvider(LLMProvider):
     ) -> None:
         self._model = model
         self._max_tokens = max_tokens
-        self._client = anthropic.Anthropic(
-            api_key=api_key or os.environ["ANTHROPIC_API_KEY"]
-        )
+        resolved_key = api_key or os.environ.get("ANTHROPIC_API_KEY")
+        if not resolved_key:
+            raise RuntimeError(
+                "No Anthropic API key provided. Pass api_key= explicitly or "
+                "set the ANTHROPIC_API_KEY environment variable."
+            )
+        self._client = anthropic.Anthropic(api_key=resolved_key)
 
     def _call_llm(self, finding: EnrichedFinding) -> str:
         """Build prompt, call Claude, return the analysis text."""
