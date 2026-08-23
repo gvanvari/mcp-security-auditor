@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>MCP Security Audit — /Users/gvanvari/code/mcp-security-auditor/eval/corpus/clean-body.py</title>
+<title>MCP Security Audit — /Users/gvanvari/code/mcp-security-auditor/eval/corpus/benign-fixed-endpoint.py</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
@@ -60,26 +60,65 @@
 <body>
 <div class="container">
   <h1>🔍 MCP Security Audit Report</h1>
-  <p class="subtitle">File: <code>/Users/gvanvari/code/mcp-security-auditor/eval/corpus/clean-body.py</code></p>
+  <p class="subtitle">File: <code>/Users/gvanvari/code/mcp-security-auditor/eval/corpus/benign-fixed-endpoint.py</code></p>
 
   <div class="summary">
-    <div class="stat"><div class="stat-num">0</div><div class="stat-label">Total</div></div>
+    <div class="stat"><div class="stat-num">1</div><div class="stat-label">Total</div></div>
     <div class="stat critical"><div class="stat-num">0</div><div class="stat-label">Critical</div></div>
     <div class="stat high"><div class="stat-num">0</div><div class="stat-label">High</div></div>
-    <div class="stat medium"><div class="stat-num">0</div><div class="stat-label">Medium</div></div>
+    <div class="stat medium"><div class="stat-num">1</div><div class="stat-label">Medium</div></div>
     <div class="stat low"><div class="stat-num">0</div><div class="stat-label">Low</div></div>
   </div>
 
   <div class="filters">
-    <button class="filter-btn active" onclick="filter('ALL')">All (0)</button>
+    <button class="filter-btn active" onclick="filter('ALL')">All (1)</button>
     <button class="filter-btn" onclick="filter('CRITICAL')" style="color:#dc2626;">🔴 Critical (0)</button>
     <button class="filter-btn" onclick="filter('HIGH')" style="color:#ea580c;">🟠 High (0)</button>
-    <button class="filter-btn" onclick="filter('MEDIUM')" style="color:#ca8a04;">🟡 Medium (0)</button>
+    <button class="filter-btn" onclick="filter('MEDIUM')" style="color:#ca8a04;">🟡 Medium (1)</button>
     <button class="filter-btn" onclick="filter('LOW')" style="color:#16a34a;">🟢 Low (0)</button>
   </div>
 
-  <p class="empty">✅ No findings detected.</p>
   
+  
+<div class="card" data-severity="MEDIUM" data-suppressed="false" style="border-left: 4px solid #ca8a04; background: #fefce8;">
+  <div class="card-header" onclick="toggle(this)">
+    <span class="sev-badge" style="background:#ca8a04;">MEDIUM</span>
+    <span class="card-title">Finding 1: Server-Side Request Forgery (SSRF) via outbound HTTP call</span>
+    <span class="card-meta">
+      <code>MCP-SSRF-001</code>
+      <span class="badge owasp">OWASP LLM02</span>
+      
+      <code class="loc">/Users/gvanvari/code/mcp-security-auditor/eval/corpus/benign-fixed-endpoint.py:18</code>
+    </span>
+    <span class="toggle-icon">▼</span>
+  </div>
+  <div class="card-body">
+    <div class="meta-grid">
+      <div><strong>Type</strong><br><code>ssrf</code></div>
+      <div><strong>Confidence</strong><br><code>EXPERIMENTAL</code></div>
+      <div><strong>Routing</strong><br><code>NEEDS_CONTEXT</code></div>
+    </div>
+    
+    <div class="section">
+      <strong>📝 Description</strong>
+      <p>requests.get() makes an outbound HTTP call. If the URL is attacker-controlled this enables SSRF: the attacker can probe internal services, reach cloud metadata endpoints (169.254.169.254), or exfiltrate data to an external host.</p>
+    </div>
+    <div class="section">
+      <strong>🔍 Evidence</strong>
+      <pre><code>requests.get(...)</code></pre>
+    </div>
+    <div class="section">
+      <strong>🛠 Remediation</strong>
+      <p>Validate and restrict the URL before making outbound requests. Use an allowlist of permitted hostnames or URL prefixes. Block requests to private IP ranges (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16, 127.0.0.0/8) and cloud metadata endpoints. If the tool only needs to reach one specific endpoint, hardcode the base URL and only allow user input for path parameters after validation.</p>
+    </div>
+    
+    
+            <div class="section">
+              <strong>📚 References</strong>
+              <ul><li>OWASP LLM02: Insecure Output Handling</li><li>CWE-918: Server-Side Request Forgery</li><li><a href="https://owasp.org/www-project-top-10-for-large-language-model-applications/" target="_blank">https://owasp.org/www-project-top-10-for-large-language-model-applications/</a></li><li><a href="https://cheatsheetseries.owasp.org/cheatsheets/Server_Side_Request_Forgery_Prevention_Cheat_Sheet.html" target="_blank">https://cheatsheetseries.owasp.org/cheatsheets/Server_Side_Request_Forgery_Prevention_Cheat_Sheet.html</a></li></ul>
+            </div>
+  </div>
+</div>
 </div>
 
 <script>

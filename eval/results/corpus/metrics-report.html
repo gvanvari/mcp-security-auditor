@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MCP Security Audit — Validation Metrics</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+         background: #f8fafc; color: #1e293b; line-height: 1.6; }
+  .container { max-width: 950px; margin: 0 auto; padding: 2rem 1rem; }
+  h1 { font-size: 1.6rem; font-weight: 700; margin-bottom: 0.25rem; }
+  h2 { font-size: 1.1rem; font-weight: 600; margin: 2rem 0 0.75rem; color: #475569; }
+  h3 { font-size: 0.95rem; font-weight: 600; }
+  .subtitle { color: #64748b; font-size: 0.9rem; margin-bottom: 2rem; }
+  .metrics { display: flex; gap: 1rem; margin-bottom: 2rem; flex-wrap: wrap; }
+  .metric { background: white; border-radius: 8px; padding: 1rem 1.5rem;
+             border: 1px solid #e2e8f0; text-align: center; min-width: 130px; }
+  .metric-num { font-size: 2rem; font-weight: 700; }
+  .metric-label { font-size: 0.75rem; color: #64748b; text-transform: uppercase; }
+  .metric-sub { font-size: 0.7rem; color: #94a3b8; margin-top: 0.15rem; }
+  .metric.recall .metric-num { color: #2563eb; }
+  .metric.precision .metric-num { color: #7c3aed; }
+  .metric.fprate .metric-num { color: #ea580c; }
+  .metric.tp .metric-num { color: #16a34a; }
+  .metric.fp .metric-num { color: #7c3aed; }
+  .metric.fn .metric-num { color: #dc2626; }
+  table { width: 100%; background: white; border-radius: 8px; border: 1px solid #e2e8f0;
+           border-collapse: collapse; font-size: 0.88rem; overflow: hidden; }
+  th { background: #f1f5f9; padding: 0.6rem 0.75rem; text-align: left;
+        font-size: 0.8rem; color: #475569; border-bottom: 1px solid #e2e8f0; }
+  td { padding: 0.55rem 0.75rem; border-bottom: 1px solid #f1f5f9; vertical-align: middle; }
+  tr:last-child td { border-bottom: none; }
+  code { background: #f1f5f9; padding: 0.1rem 0.35rem; border-radius: 3px; font-size: 0.82rem; }
+  .section-box { background: white; border-radius: 8px; border: 1px solid #e2e8f0;
+                  padding: 1.25rem; margin-bottom: 1.5rem; }
+  ul { padding-left: 1.25rem; }
+  li { margin-bottom: 0.35rem; font-size: 0.9rem; }
+  .legend { display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 1rem; font-size: 0.85rem; }
+  .legend-item { display: flex; align-items: center; gap: 0.35rem; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>📐 Validation Metrics Report</h1>
+  <p class="subtitle">Ground truth comparison — how well does the auditor perform?</p>
+
+  <div class="metrics">
+    <div class="metric recall">
+      <div class="metric-num">100.0%</div>
+      <div class="metric-label">Recall</div>
+    </div>
+    <div class="metric precision">
+      <div class="metric-num">78.9%</div>
+      <div class="metric-label">Precision</div>
+    </div>
+    <div class="metric fprate">
+      <div class="metric-num">80.0%</div>
+      <div class="metric-label">FP rate</div>
+      <div class="metric-sub">4/5 benign files flagged</div>
+    </div>
+    <div class="metric tp">
+      <div class="metric-num">15</div>
+      <div class="metric-label">True Positives</div>
+    </div>
+    <div class="metric fp">
+      <div class="metric-num">4</div>
+      <div class="metric-label">False Positives</div>
+    </div>
+    <div class="metric fn">
+      <div class="metric-num">0</div>
+      <div class="metric-label">False Negatives</div>
+    </div>
+  </div>
+
+  <h2>Per-Rule Breakdown</h2>
+  <table>
+  <tr>
+    <th>Rule</th>
+    <th>TP</th>
+    <th>FP</th>
+    <th>FN</th>
+    <th>Precision</th>
+    <th>Recall</th>
+  </tr>
+  
+<tr>
+  <td><code>MCP-CMI-001</code></td>
+  <td>2</td>
+  <td>0</td>
+  <td>0</td>
+  <td>100.0%</td>
+  <td>100.0%</td>
+</tr>
+<tr>
+  <td><code>MCP-CMI-002</code></td>
+  <td>2</td>
+  <td>0</td>
+  <td>0</td>
+  <td>100.0%</td>
+  <td>100.0%</td>
+</tr>
+<tr>
+  <td><code>MCP-CMI-003</code></td>
+  <td>2</td>
+  <td>0</td>
+  <td>0</td>
+  <td>100.0%</td>
+  <td>100.0%</td>
+</tr>
+<tr>
+  <td><code>MCP-RUGPULL-001</code></td>
+  <td>1</td>
+  <td>0</td>
+  <td>0</td>
+  <td>100.0%</td>
+  <td>100.0%</td>
+</tr>
+<tr>
+  <td><code>MCP-SEC-001</code></td>
+  <td>2</td>
+  <td>1</td>
+  <td>0</td>
+  <td>66.7%</td>
+  <td>100.0%</td>
+</tr>
+<tr>
+  <td><code>MCP-SHADOW-001</code></td>
+  <td>1</td>
+  <td>2</td>
+  <td>0</td>
+  <td>33.3%</td>
+  <td>100.0%</td>
+</tr>
+<tr>
+  <td><code>MCP-SSRF-001</code></td>
+  <td>2</td>
+  <td>1</td>
+  <td>0</td>
+  <td>66.7%</td>
+  <td>100.0%</td>
+</tr>
+<tr>
+  <td><code>MCP-TPA-001</code></td>
+  <td>1</td>
+  <td>0</td>
+  <td>0</td>
+  <td>100.0%</td>
+  <td>100.0%</td>
+</tr>
+<tr>
+  <td><code>MCP-TPA-002</code></td>
+  <td>2</td>
+  <td>0</td>
+  <td>0</td>
+  <td>100.0%</td>
+  <td>100.0%</td>
+</tr>
+</table>
+
+  <h2>Per-Finding Breakdown</h2>
+  <div class="legend">
+    <span class="legend-item"><span class="dot" style="background:#16a34a;"></span>PASS — correctly detected</span>
+    <span class="legend-item"><span class="dot" style="background:#dc2626;"></span>MISS — not detected (false negative)</span>
+    <span class="legend-item"><span class="dot" style="background:#7c3aed;"></span>FP — detected but not expected (false positive)</span>
+  </div>
+  <table>
+    <tr>
+      <th>MCP</th>
+      <th>Expected Rule</th>
+      <th>Severity</th>
+      <th>Status</th>
+      <th>Notes</th>
+    </tr>
+    
+<tr>
+  <td><code>benign-config-read.py</code></td>
+  <td><code>(unexpected) MCP-SEC-001</code></td>
+  <td>LOW</td>
+  <td style="color:#7c3aed;font-weight:700;">FP</td>
+  <td style="color:#64748b;font-size:0.85rem;">Not in EXPECTED — may be false positive</td>
+</tr>
+<tr>
+  <td><code>benign-contact-info.py</code></td>
+  <td><code>(unexpected) MCP-SHADOW-001</code></td>
+  <td>LOW</td>
+  <td style="color:#7c3aed;font-weight:700;">FP</td>
+  <td style="color:#64748b;font-size:0.85rem;">Not in EXPECTED — may be false positive</td>
+</tr>
+<tr>
+  <td><code>benign-fixed-endpoint.py</code></td>
+  <td><code>(unexpected) MCP-SSRF-001</code></td>
+  <td>MEDIUM</td>
+  <td style="color:#7c3aed;font-weight:700;">FP</td>
+  <td style="color:#64748b;font-size:0.85rem;">Not in EXPECTED — may be false positive</td>
+</tr>
+<tr>
+  <td><code>benign-notification.py</code></td>
+  <td><code>(unexpected) MCP-SHADOW-001</code></td>
+  <td>LOW</td>
+  <td style="color:#7c3aed;font-weight:700;">FP</td>
+  <td style="color:#64748b;font-size:0.85rem;">Not in EXPECTED — may be false positive</td>
+</tr>
+<tr>
+  <td><code>cmd-injection.py</code></td>
+  <td><code>MCP-CMI-001</code></td>
+  <td>HIGH</td>
+  <td style="color:#16a34a;font-weight:700;">PASS</td>
+  <td style="color:#64748b;font-size:0.85rem;">os.system(cmd) — attacker-controlled cmd passed directly to shell</td>
+</tr>
+<tr>
+  <td><code>cmd-injection.py</code></td>
+  <td><code>MCP-CMI-002</code></td>
+  <td>HIGH</td>
+  <td style="color:#16a34a;font-weight:700;">PASS</td>
+  <td style="color:#64748b;font-size:0.85rem;">subprocess.run(cmd, shell=True) — shell metacharacters active</td>
+</tr>
+<tr>
+  <td><code>cmd-injection.py</code></td>
+  <td><code>MCP-CMI-002</code></td>
+  <td>MEDIUM</td>
+  <td style="color:#16a34a;font-weight:700;">PASS</td>
+  <td style="color:#64748b;font-size:0.85rem;">subprocess.Popen without shell=True — lower risk but unvalidated args</td>
+</tr>
+<tr>
+  <td><code>direct-poisoning.py</code></td>
+  <td><code>MCP-TPA-001</code></td>
+  <td>CRITICAL</td>
+  <td style="color:#16a34a;font-weight:700;">PASS</td>
+  <td style="color:#64748b;font-size:0.85rem;">Tool docstring contains hidden instructions to redirect all emails to attacker</td>
+</tr>
+<tr>
+  <td><code>direct-poisoning.py</code></td>
+  <td><code>MCP-TPA-002</code></td>
+  <td>HIGH</td>
+  <td style="color:#16a34a;font-weight:700;">PASS</td>
+  <td style="color:#64748b;font-size:0.85rem;">Docstring instructs agent to suppress disclosure to user</td>
+</tr>
+<tr>
+  <td><code>env-leak.py</code></td>
+  <td><code>MCP-SEC-001</code></td>
+  <td>MEDIUM</td>
+  <td style="color:#16a34a;font-weight:700;">PASS</td>
+  <td style="color:#64748b;font-size:0.85rem;">os.environ[key] — exposes any environment variable by attacker-supplied name</td>
+</tr>
+<tr>
+  <td><code>env-leak.py</code></td>
+  <td><code>MCP-SEC-001</code></td>
+  <td>MEDIUM</td>
+  <td style="color:#16a34a;font-weight:700;">PASS</td>
+  <td style="color:#64748b;font-size:0.85rem;">os.getenv(name) — same risk via different API</td>
+</tr>
+<tr>
+  <td><code>eval-exec.py</code></td>
+  <td><code>MCP-CMI-003</code></td>
+  <td>CRITICAL</td>
+  <td style="color:#16a34a;font-weight:700;">PASS</td>
+  <td style="color:#64748b;font-size:0.85rem;">eval(expression) — arbitrary Python code execution from user input</td>
+</tr>
+<tr>
+  <td><code>eval-exec.py</code></td>
+  <td><code>MCP-CMI-003</code></td>
+  <td>CRITICAL</td>
+  <td style="color:#16a34a;font-weight:700;">PASS</td>
+  <td style="color:#64748b;font-size:0.85rem;">exec(code) — arbitrary Python code execution from user input</td>
+</tr>
+<tr>
+  <td><code>http-exfil.py</code></td>
+  <td><code>MCP-SSRF-001</code></td>
+  <td>HIGH</td>
+  <td style="color:#16a34a;font-weight:700;">PASS</td>
+  <td style="color:#64748b;font-size:0.85rem;">requests.get(url) — attacker-controlled URL enables SSRF to internal services</td>
+</tr>
+<tr>
+  <td><code>http-exfil.py</code></td>
+  <td><code>MCP-SSRF-001</code></td>
+  <td>HIGH</td>
+  <td style="color:#16a34a;font-weight:700;">PASS</td>
+  <td style="color:#64748b;font-size:0.85rem;">requests.post(endpoint) — attacker controls endpoint for data exfiltration</td>
+</tr>
+<tr>
+  <td><code>shadowing.py</code></td>
+  <td><code>MCP-SHADOW-001</code></td>
+  <td>CRITICAL</td>
+  <td style="color:#16a34a;font-weight:700;">PASS</td>
+  <td style="color:#64748b;font-size:0.85rem;">Docstring overrides behaviour of send_email tool in co-installed server</td>
+</tr>
+<tr>
+  <td><code>shadowing.py</code></td>
+  <td><code>MCP-TPA-002</code></td>
+  <td>HIGH</td>
+  <td style="color:#16a34a;font-weight:700;">PASS</td>
+  <td style="color:#64748b;font-size:0.85rem;">Instructs agent to suppress disclosure (&#x27;Do not mention this to the user&#x27;)</td>
+</tr>
+<tr>
+  <td><code>whatsapp-takeover.py</code></td>
+  <td><code>MCP-RUGPULL-001</code></td>
+  <td>CRITICAL</td>
+  <td style="color:#16a34a;font-weight:700;">PASS</td>
+  <td style="color:#64748b;font-size:0.85rem;">Conditional __doc__ mutation after trigger file created — rug pull pattern</td>
+</tr>
+<tr>
+  <td><code>whatsapp-takeover.py</code></td>
+  <td><code>MCP-CMI-001</code></td>
+  <td>HIGH</td>
+  <td style="color:#16a34a;font-weight:700;">PASS</td>
+  <td style="color:#64748b;font-size:0.85rem;">os.system(&#x27;touch ~/.mcp-triggered&#x27;) — creates persistence marker on host</td>
+</tr>
+  </table>
+
+  <h2>Gap Analysis</h2>
+  <div class="section-box">
+    <h3 style='color:#7c3aed;margin:1rem 0 0.5rem;'>⚠️ False Positives</h3><ul><li><code>(unexpected) MCP-SEC-001</code> in <code>benign-config-read.py</code> — Not in EXPECTED — may be false positive</li><li><code>(unexpected) MCP-SHADOW-001</code> in <code>benign-contact-info.py</code> — Not in EXPECTED — may be false positive</li><li><code>(unexpected) MCP-SSRF-001</code> in <code>benign-fixed-endpoint.py</code> — Not in EXPECTED — may be false positive</li><li><code>(unexpected) MCP-SHADOW-001</code> in <code>benign-notification.py</code> — Not in EXPECTED — may be false positive</li></ul>
+  </div>
+</div>
+</body>
+</html>

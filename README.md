@@ -172,15 +172,47 @@ Tested against production MCPs with known CVEs:
 
 | Target                                            | Advisory                       | Expected rule  | Result                                                                                                    |
 | ------------------------------------------------- | ------------------------------ | -------------- | --------------------------------------------------------------------------------------------------------- |
-| `modelcontextprotocol/servers` — `mcp-server-git` | CVE-2025-68144/68145           | `MCP-CMI-002`  | 0 findings on this clean revision — precision is tracked in corpus metrics, not a universal zero-FP claim |
+| `modelcontextprotocol/servers` — `mcp-server-git` | CVE-2025-68144/68145           | `MCP-CMI-002`  | 0 findings on this clean revision — precision is tracked in corpus metrics below, not a universal zero-FP claim |
 | `microsoft/markitdown` — `markitdown-mcp`         | Unpatched SSRF (VulnerableMCP) | `MCP-SSRF-001` | ✅ `MCP-SSRF-001 HIGH` — unvalidated URI parameter forwarded to outbound HTTP call                        |
 
 The markitdown finding required extending the AST extractor — the initial scan missed the SSRF because the HTTP call is mediated through a third-party library method rather than a direct `requests.get()`. See [DESIGN_DECISIONS.md](DESIGN_DECISIONS.md) → "Known Extractor Gaps".
 
-Known false-positive sources today: benign environment-variable reads and
-contact strings (email/phone/tool-name references) in docstrings. These are
-surfaced as lower-confidence informational context unless structural
-cross-tool override phrasing is also present.
+---
+
+## Precision & recall
+
+Measured against [`eval/corpus`](eval/corpus) — 7 files with intentionally planted
+vulnerabilities plus 5 benign fixtures (a clean tool, a contact-info
+docstring, a self-describing notification tool, a hardcoded-key env read,
+and a hardcoded-URL HTTP call) — via `mcp-auditor-all eval/corpus`, which
+renders the full breakdown to
+[`eval/results/corpus/metrics-report.html`](eval/results/corpus/metrics-report.html):
+
+| Metric        | Value | Detail                        |
+| ------------- | ----- | ------------------------------ |
+| Recall        | 100%  | 15/15 planted vulnerabilities detected |
+| Precision     | 78.9% | 15 TP / 19 total findings (4 FP) |
+| FP rate       | 80%   | 4/5 benign fixtures fired at least one finding |
+
+Recall is perfect on this corpus — every planted vulnerability fires.
+Precision is dragged down almost entirely by one rule: `MCP-SHADOW-001`'s
+weak email/phone/`send_*` indicators (33.3% precision, 1 TP / 3 total) —
+these are deliberately downgraded to LOW/EXPERIMENTAL rather than suppressed
+outright, since a bare contact string can co-occur with real shadowing.
+`MCP-SEC-001` and `MCP-SSRF-001` each sit at 66.7% precision from
+constant-reachability findings (hardcoded env keys / hardcoded URLs) — the
+`reachability: constant` classification means they never fail CI (see
+`--fail-on` above) but are still reported, which is why they count against
+precision here. Every other rule (command injection, eval/exec, tool
+poisoning, rug pull) is 100%/100%.
+
+Known false-positive sources today: benign environment-variable reads,
+hardcoded outbound HTTP calls, and contact strings (email/phone/tool-name
+references) in docstrings. These are surfaced as lower-confidence
+informational context unless structural cross-tool override phrasing or
+attacker-controlled input is also present — see
+[`eval/corpus/EXPECTED.yaml`](eval/corpus/EXPECTED.yaml) for the fixtures
+that pin this down as a regression test.
 
 ---
 
