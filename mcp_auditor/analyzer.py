@@ -29,6 +29,7 @@ from mcp_auditor.reporters.sarif_reporter import SARIFReporter
 from mcp_auditor.reporters.html_reporter import HTMLReporter
 from mcp_auditor.reporters.comparison_reporter import ComparisonReporter
 from mcp_auditor.reporters.metrics_reporter import MetricsReporter
+from mcp_auditor.reporters.attack_surface_reporter import AttackSurfaceReporter
 from mcp_auditor.suppression import (
     DEFAULT_BASELINE_PATH,
     apply_baseline,
@@ -368,6 +369,13 @@ def scan_all(
         encoding="utf-8",
     )
 
+    # Attack-surface map (P2-7) — per-tool entry points and the sinks they reach
+    attack_surface_path = out / "attack-surface.md"
+    attack_surface_path.write_text(
+        AttackSurfaceReporter().generate(all_results, root),
+        encoding="utf-8",
+    )
+
     # Metrics / validation report — only if EXPECTED.yaml exists next to the scanned dir
     expected_yaml = root / "EXPECTED.yaml"
     if expected_yaml.exists():
@@ -391,6 +399,7 @@ def scan_all(
     )
     console.print(f"[dim]Reports:    {out}/[/dim]")
     console.print(f"[dim]Comparison: {comparison_path}[/dim]")
+    console.print(f"[dim]Attack surface: {attack_surface_path}[/dim]")
     console.print(
         f"[dim]Note: analysis boundary is intra-file; "
         f"cross-file data flows are not tracked.[/dim]"
