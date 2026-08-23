@@ -30,6 +30,11 @@ from .threat_vector import (
     ThreatVectorType,
 )
 
+# P3-4: files larger than this are skipped rather than read fully into memory
+# and parsed — a huge file (accidentally vendored data, a malicious oversized
+# payload) should produce a clear warning, not an unbounded-memory hang.
+_MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024  # 5 MB
+
 
 # ---------------------------------------------------------------------------
 # Low-level AST helpers
@@ -573,6 +578,104 @@ def _detect_env_access(
     return findings
 
 
+def _detect_unsafe_deserialization(
+    tree: ast.Module,
+    file_path: str,
+    taint: "_TaintContext | None" = None,
+    import_map: "_ImportMap | None" = None,
+) -> list[ThreatVector]:
+    """
+    Detect unsafe deserialization sinks (P3-5):
+      - pickle.loads(...) / pickle.load(...) — unpickling reconstructs
+        arbitrary Python objects via __reduce__; there is no safe way to
+        feed it attacker-controlled bytes.
+      - yaml.load(...) without an explicit Safe*Loader — PyYAML's default
+        Loader supports the same object-construction tags as pickle.
+        yaml.safe_load() and yaml.load(..., Loader=yaml.SafeLoader) are
+        not flagged.
+
+    Aliased imports and from-imports are resolved via import_map when provided.
+    """
+    findings: list[ThreatVector] = []
+
+    PICKLE_CALLS = {"loads", "load"}
+    SAFE_LOADER_NAMES = {"SafeLoader", "CSafeLoader"}
+
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+
+        # pickle.loads / pickle.load — direct, aliased, or from-import
+        for fn in PICKLE_CALLS:
+            matched = _is_attr_call(node, "pickle", fn) or (
+                import_map is not None and import_map.matches(node, "pickle", fn)
+            )
+            if not matched:
+                continue
+            arg_node = node.args[0] if node.args else None
+            reach = taint.classify(arg_node) if (taint and arg_node) else "unknown"
+            sev, conf = _adjust_for_reachability(Severity.CRITICAL, Confidence.PROPOSED, reach)
+            findings.append(ThreatVector(
+                rule_id="MCP-DESER-001",
+                type=ThreatVectorType.DESERIALIZATION,
+                severity=sev,
+                confidence=conf,
+                location=f"{file_path}:{node.lineno}",
+                evidence=f"pickle.{fn}(...)",
+                description=(
+                    f"pickle.{fn}() deserializes a byte stream by reconstructing "
+                    f"arbitrary Python objects, including invoking __reduce__ on "
+                    f"attacker-chosen classes. Unpickling untrusted data is "
+                    f"equivalent to running attacker-supplied code inside the "
+                    f"MCP server process."
+                ),
+                owasp_llm="LLM08",
+                reachability=reach,
+            ))
+
+        # yaml.load(...) — direct, aliased, or from-import
+        matched_yaml = _is_attr_call(node, "yaml", "load") or (
+            import_map is not None and import_map.matches(node, "yaml", "load")
+        )
+        if not matched_yaml:
+            continue
+
+        loader_kw = next((kw for kw in node.keywords if kw.arg == "Loader"), None)
+        loader_is_safe = loader_kw is not None and (
+            (isinstance(loader_kw.value, ast.Attribute) and loader_kw.value.attr in SAFE_LOADER_NAMES)
+            or (isinstance(loader_kw.value, ast.Name) and loader_kw.value.id in SAFE_LOADER_NAMES)
+        )
+        if loader_is_safe:
+            continue
+
+        arg_node = node.args[0] if node.args else None
+        reach = taint.classify(arg_node) if (taint and arg_node) else "unknown"
+        sev, conf = _adjust_for_reachability(Severity.CRITICAL, Confidence.PROPOSED, reach)
+        evidence = (
+            "yaml.load(...) [no Loader= — defaults to unsafe]"
+            if loader_kw is None
+            else "yaml.load(..., Loader=<unsafe loader>)"
+        )
+        findings.append(ThreatVector(
+            rule_id="MCP-DESER-002",
+            type=ThreatVectorType.DESERIALIZATION,
+            severity=sev,
+            confidence=conf,
+            location=f"{file_path}:{node.lineno}",
+            evidence=evidence,
+            description=(
+                "yaml.load() without an explicit SafeLoader can construct "
+                "arbitrary Python objects from YAML tags (e.g. !!python/object/apply), "
+                "making it equivalent to pickle for attacker-controlled input. "
+                "Use yaml.safe_load() or yaml.load(..., Loader=yaml.SafeLoader)."
+            ),
+            owasp_llm="LLM08",
+            reachability=reach,
+        ))
+
+    return findings
+
+
 def _detect_http_calls(
     tree: ast.Module,
     file_path: str,
@@ -798,7 +901,20 @@ class ASTExtractor:
     """
 
     def analyze(self, file_path: str) -> ScanResult:
-        source = Path(file_path).read_text(encoding="utf-8")
+        path = Path(file_path)
+        size = path.stat().st_size
+        if size > _MAX_FILE_SIZE_BYTES:
+            return ScanResult(
+                file_path=file_path,
+                findings=[],
+                parse_status="failed",
+                parse_warning=(
+                    f"File too large to scan ({size:,} bytes > "
+                    f"{_MAX_FILE_SIZE_BYTES:,} byte limit) — skipped rather than "
+                    f"read fully into memory and parsed."
+                ),
+            )
+        source = path.read_text(encoding="utf-8")
         try:
             tree = ast.parse(source, filename=file_path)
         except SyntaxError as exc:
@@ -837,6 +953,7 @@ class ASTExtractor:
             func_findings.extend(_detect_cmd_injection(func_module, file_path, taint, import_map))  # type: ignore[arg-type]
             func_findings.extend(_detect_eval_exec(func_module, file_path, taint))                   # type: ignore[arg-type]
             func_findings.extend(_detect_env_access(func_module, file_path, taint, import_map))      # type: ignore[arg-type]
+            func_findings.extend(_detect_unsafe_deserialization(func_module, file_path, taint, import_map))  # type: ignore[arg-type]
             func_findings.extend(_detect_http_calls(func_module, file_path, taint, import_map, http_client_locals))  # type: ignore[arg-type]
 
             for f in func_findings:
@@ -854,6 +971,7 @@ class ASTExtractor:
         all_findings.extend(_detect_cmd_injection(tree, file_path, None, import_map))  # type: ignore[arg-type]
         all_findings.extend(_detect_eval_exec(tree, file_path))                         # type: ignore[arg-type]
         all_findings.extend(_detect_env_access(tree, file_path, None, import_map))      # type: ignore[arg-type]
+        all_findings.extend(_detect_unsafe_deserialization(tree, file_path, None, import_map))  # type: ignore[arg-type]
         all_findings.extend(_detect_http_calls(tree, file_path, None, import_map, http_client_locals_file))  # type: ignore[arg-type]
 
         for f in all_findings:

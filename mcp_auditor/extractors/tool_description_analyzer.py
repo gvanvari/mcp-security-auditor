@@ -28,6 +28,10 @@ from .threat_vector import (
     ThreatVectorType,
 )
 
+# P3-4: files larger than this are skipped rather than read fully into memory
+# and parsed — mirrors the same guard in ast_extractor.py.
+_MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024  # 5 MB
+
 # ---------------------------------------------------------------------------
 # Patterns — each maps to a known exploit or attack class
 # ---------------------------------------------------------------------------
@@ -296,7 +300,19 @@ class ToolDescriptionAnalyzer:
     """
 
     def analyze(self, file_path: str) -> ScanResult:
-        source = Path(file_path).read_text(encoding="utf-8")
+        path = Path(file_path)
+        size = path.stat().st_size
+        if size > _MAX_FILE_SIZE_BYTES:
+            return ScanResult(
+                file_path=file_path,
+                parse_status="failed",
+                parse_warning=(
+                    f"File too large to scan ({size:,} bytes > "
+                    f"{_MAX_FILE_SIZE_BYTES:,} byte limit) — skipped rather than "
+                    f"read fully into memory and parsed."
+                ),
+            )
+        source = path.read_text(encoding="utf-8")
 
         try:
             tree = ast.parse(source, filename=file_path)

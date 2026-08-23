@@ -22,7 +22,7 @@ from rich.panel import Panel
 
 from mcp_auditor.kb.router import KBRouter
 from mcp_auditor.extractors.ast_extractor import ASTExtractor
-from mcp_auditor.extractors.threat_vector import EnrichedFinding, ScanResult
+from mcp_auditor.extractors.threat_vector import EnrichedFinding, ScanResult, ThreatVector
 from mcp_auditor.extractors.tool_description_analyzer import ToolDescriptionAnalyzer
 from mcp_auditor.reporters.markdown_reporter import MarkdownReporter
 from mcp_auditor.reporters.sarif_reporter import SARIFReporter
@@ -39,6 +39,23 @@ from mcp_auditor.suppression import (
 )
 
 console = Console(stderr=True)
+
+
+def _dedup_vectors(vectors: List[ThreatVector]) -> List[ThreatVector]:
+    """
+    P3-1: Drop exact duplicates by (location, rule_id), keeping the first
+    occurrence's ordering. AST extraction and docstring extraction run
+    independently and can both fire on the same line for the same rule.
+    """
+    seen: set[tuple[str, str]] = set()
+    deduped: List[ThreatVector] = []
+    for vector in vectors:
+        key = (vector.location, vector.rule_id)
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(vector)
+    return deduped
 
 
 class Analyzer:
@@ -71,7 +88,11 @@ class Analyzer:
         ast_result: ScanResult = self._ast_extractor.analyze(file_path)
         desc_result: ScanResult = self._desc_analyzer.analyze(file_path)
 
-        combined_vectors = ast_result.findings + desc_result.findings
+        # P3-1: the two extractors can independently flag the same sink
+        # (e.g. a docstring-level pattern that also matches an AST rule at
+        # the same line) — dedup by (location, rule_id) before routing so
+        # the same finding never appears twice in a report.
+        combined_vectors = _dedup_vectors(ast_result.findings + desc_result.findings)
 
         # Build a merged ScanResult for the router
         merged = ScanResult(

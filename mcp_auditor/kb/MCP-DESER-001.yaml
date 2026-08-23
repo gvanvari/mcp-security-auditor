@@ -1,0 +1,28 @@
+id: MCP-DESER-001
+title: "Arbitrary code execution via pickle.load / pickle.loads"
+severity: CRITICAL
+owasp_llm: LLM08
+cwe: CWE-502
+
+description: >
+  A call to pickle.load() or pickle.loads() was detected. Unpickling
+  reconstructs arbitrary Python objects from a byte stream, including
+  invoking __reduce__ on attacker-chosen classes. If the pickled data
+  originates from outside the process — a tool argument, a downloaded
+  file, a cached value an attacker can influence — deserializing it is
+  equivalent to letting the attacker run arbitrary code inside the MCP
+  server process. Pickle was never designed to be used on untrusted input.
+
+remediation: >
+  Do not unpickle data that originates outside the process. If the data
+  only needs to represent simple structures (dicts, lists, primitives),
+  switch to json.loads(). If you specifically need Python object graphs
+  from a trusted source, keep pickle but ensure the byte stream is signed
+  or comes from a location the attacker cannot influence.
+
+references:
+  - "OWASP LLM08: Excessive Agency"
+  - "CWE-502: Deserialization of Untrusted Data"
+  - "https://docs.python.org/3/library/pickle.html#module-pickle"
+
+llm_routing: SELF_CONTAINED
